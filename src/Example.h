@@ -229,7 +229,7 @@ namespace tvgexam
 				auto result = 1 / ema_dt;
 				mfps += result;
 				if (tickCnt % 10 == 0) printf("[%5d]: %0.2f / %0.2f fps\n", tickCnt, result, mfps / (tickCnt - 59));
-				if (tickCnt == 3000) {
+				if (tickCnt == 4000) {
 					exit(0);
 				}
 			}
