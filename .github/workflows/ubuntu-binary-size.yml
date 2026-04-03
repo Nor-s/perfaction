@@ -1,0 +1,143 @@
+name: Ubuntu Binary Size
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Packages
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build libsdl2-dev libgl1-mesa-dev
+
+      - name: Prepare report directory
+        shell: bash
+        run: |
+          mkdir -p ci-report
+
+      - name: Collect Binary Size Metrics
+        shell: bash
+        run: |
+          collect_size() {
+            subproject="$1"
+            threads="$2"
+            subproject_dir="subprojects/${subproject}"
+            build_dir="${subproject_dir}/build-size-${threads}"
+            size_out="ci-report/ubuntu_${subproject}_${threads}.size.txt"
+
+            meson setup "$build_dir" \
+              -Dbuildtype=release \
+              -Doptimization=s \
+              -Dengines=sw,gl \
+              -Dloaders=all \
+              -Dsavers=all \
+              -Dbindings=capi \
+              -Dextra=lottie_exp,openmp \
+              -Db_sanitize=none \
+              -Dthreads="$threads" \
+              -Ddefault_library=shared
+            meson compile -C "$build_dir"
+
+            lib_path="$(find "$build_dir/src" -maxdepth 1 -type f -name 'libthorvg-1.so*' | sort | head -n 1)"
+            if [ -z "$lib_path" ]; then
+              echo "Failed to locate shared lib in $build_dir/src" >&2
+              exit 1
+            fi
+
+            strip "$lib_path"
+            size "$lib_path" > "$size_out"
+            bytes=$(stat -c%s "$lib_path")
+            printf '%s\t%s\t%s\n' "$subproject" "$threads" "$bytes" >> ci-report/ubuntu_binary_sizes.tsv
+          }
+
+          : > ci-report/ubuntu_binary_sizes.tsv
+          collect_size thorvg-main false
+          collect_size thorvg-main true
+          collect_size thorvg-nors false
+          collect_size thorvg-nors true
+
+      - name: Upload Binary Size Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ubuntu-binary-size
+          path: |
+            ci-report/*.size.txt
+            ci-report/*.tsv
+          if-no-files-found: warn
+
+  report:
+    name: Ubuntu Binary Size Report
+    if: ${{ always() }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Binary Size Artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-size
+          pattern: ubuntu-binary-size
+          merge-multiple: false
+
+      - name: Write Binary Size Summary
+        shell: bash
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          size_tsv_files = sorted(Path("all-size").glob("*/*.tsv"))
+
+          if not size_tsv_files:
+              summary_path.write_text("## Ubuntu Binary Size\n\nNo size artifacts were collected.\n", encoding="utf-8")
+              raise SystemExit(0)
+
+          size_by_key = {}
+          for size_tsv in size_tsv_files:
+              for line in size_tsv.read_text(encoding="utf-8", errors="replace").splitlines():
+                  if not line.strip():
+                      continue
+                  subproject, thread_flag, byte_count = line.split("\t")
+                  size_by_key[(subproject, thread_flag)] = int(byte_count)
+
+          def format_size_delta(base, target):
+              diff = target - base
+              pct = ((target / base) - 1.0) * 100.0
+              pct_sign = "+" if pct > 0 else ""
+              diff_sign = "+" if diff > 0 else ""
+              return f"{diff_sign}{diff} bytes ({pct_sign}{pct:.2f}%)"
+
+          comparisons = [
+              ("main thread vs feature thread", ("thorvg-main", "true"), ("thorvg-nors", "true")),
+              ("main nonthread vs feature nonthread", ("thorvg-main", "false"), ("thorvg-nors", "false")),
+          ]
+
+          lines = [
+              "## Ubuntu Binary Size",
+              "",
+              "| Comparison | Base Bytes | Target Bytes | Delta |",
+              "|---|---:|---:|---:|",
+          ]
+
+          for label, base_key, target_key in comparisons:
+              base = size_by_key.get(base_key)
+              target = size_by_key.get(target_key)
+              if base is None or target is None:
+                  lines.append(f"| {label} | n/a | n/a | n/a |")
+              else:
+                  lines.append(f"| {label} | {base} | {target} | {format_size_delta(base, target)} |")
+
+          summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY

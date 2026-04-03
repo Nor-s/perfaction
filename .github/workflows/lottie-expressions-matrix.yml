@@ -1,6 +1,9 @@
 name: LottieExpressions Matrix
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       platform:
@@ -21,6 +24,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'lottie') }}
     name: ${{ matrix.platform }}
     runs-on: ${{ matrix.runs_on }}
     strategy:
@@ -150,18 +154,7 @@ jobs:
             return $status
           }
 
-          build_only() {
-            subproject="$1"
-            threads="$2"
-            build_dir="build-${subproject}-${threads}"
-            meson setup "$build_dir" "${setup_args[@]}" -Dthorvg_subproject="$subproject" -Dthreads="$threads"
-            meson compile -C "$build_dir"
-          }
-
           run_case thorvg-main false 0
-          if [ "${{ matrix.platform }}" = "ubuntu" ]; then
-            build_only thorvg-main true
-          fi
           run_case thorvg-nors false 0
           run_case thorvg-nors true 0
           run_case thorvg-nors true 4
@@ -227,48 +220,6 @@ jobs:
           run_case thorvg-nors true 0
           run_case thorvg-nors true 4
 
-      - name: Collect Binary Size Metrics (Ubuntu)
-        if: matrix.platform == 'ubuntu'
-        shell: bash
-        run: |
-          collect_size() {
-            subproject="$1"
-            threads="$2"
-            subproject_dir="subprojects/${subproject}"
-            build_dir="${subproject_dir}/build-size-${threads}"
-            size_out="ci-report/${{ matrix.platform }}_${subproject}_${threads}.size.txt"
-
-            meson setup "$build_dir" \
-              -Dbuildtype=release \
-              -Doptimization=s \
-              -Dengines=sw,gl \
-              -Dloaders=all \
-              -Dsavers=all \
-              -Dbindings=capi \
-              -Dextra=lottie_exp,openmp \
-              -Db_sanitize=none \
-              -Dthreads="$threads" \
-              -Ddefault_library=shared
-            meson compile -C "$build_dir"
-
-            lib_path="$(find "$build_dir/src" -maxdepth 1 -type f -name 'libthorvg-1.so*' | sort | head -n 1)"
-            if [ -z "$lib_path" ]; then
-              echo "Failed to locate shared lib in $build_dir/src" >&2
-              exit 1
-            fi
-
-            strip "$lib_path"
-            size "$lib_path" > "$size_out"
-            bytes=$(stat -c%s "$lib_path")
-            printf '%s\t%s\t%s\n' "$subproject" "$threads" "$bytes" >> ci-report/ubuntu_binary_sizes.tsv
-          }
-
-          : > ci-report/ubuntu_binary_sizes.tsv
-          collect_size thorvg-main false
-          collect_size thorvg-main true
-          collect_size thorvg-nors false
-          collect_size thorvg-nors true
-
       - name: Upload Lottie logs
         if: always()
         uses: actions/upload-artifact@v4
@@ -276,8 +227,6 @@ jobs:
           name: lottie-logs-${{ matrix.platform }}
           path: |
             ci-report/*.log
-            ci-report/*.size.txt
-            ci-report/*.tsv
           if-no-files-found: warn
 
   report:
@@ -303,7 +252,6 @@ jobs:
 
           summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
           logs = sorted(Path("all-logs").glob("*/*.log"))
-          size_tsv_files = sorted(Path("all-logs").glob("*/*.tsv"))
 
           if not logs:
               summary_path.write_text("## LottieExpressions Summary\n\nNo log artifacts were collected.\n", encoding="utf-8")
@@ -317,7 +265,6 @@ jobs:
           }
 
           fps_by_key = {}
-          size_by_key = {}
           fps_pattern = re.compile(r"\[\s*\d+\]:\s*([0-9.]+)\s*/\s*([0-9.]+)\s+fps")
 
           for log in logs:
@@ -342,13 +289,6 @@ jobs:
 
               fps_by_key[(platform, subproject, thread_flag, sw_value)] = avg_fps
 
-          for size_tsv in size_tsv_files:
-              for line in size_tsv.read_text(encoding="utf-8", errors="replace").splitlines():
-                  if not line.strip():
-                      continue
-                  subproject, thread_flag, byte_count = line.split("\t")
-                  size_by_key[(subproject, thread_flag)] = int(byte_count)
-
           def format_delta(base, target):
               pct = ((target / base) - 1.0) * 100.0
               sign = "+" if pct > 0 else ""
@@ -362,13 +302,6 @@ jobs:
               if abs(target - base) < 0.005:
                   return f"- {label} -> 0%"
               return f"- {label} -> {format_delta(base, target)}"
-
-          def format_size_delta(base, target):
-              diff = target - base
-              pct = ((target / base) - 1.0) * 100.0
-              pct_sign = "+" if pct > 0 else ""
-              diff_sign = "+" if diff > 0 else ""
-              return f"{diff_sign}{diff} bytes ({pct_sign}{pct:.2f}%)"
 
           platforms = [p for p in platform_labels if any(key[0] == p for key in fps_by_key)]
           lines = ["## LottieExpressions Summary", ""]
@@ -406,25 +339,6 @@ jobs:
                   lines.append("")
                   lines.append("---")
                   lines.append("")
-
-          ubuntu_size_pairs = [
-              ("main thread vs feature thread", ("thorvg-main", "true"), ("thorvg-nors", "true")),
-              ("main nonthread vs feature nonthread", ("thorvg-main", "false"), ("thorvg-nors", "false")),
-          ]
-
-          if size_by_key:
-              lines.append("")
-              lines.append("## Ubuntu Binary Size")
-              lines.append("")
-              lines.append("| Comparison | Base Bytes | Target Bytes | Delta |")
-              lines.append("|---|---:|---:|---:|")
-              for label, base_key, target_key in ubuntu_size_pairs:
-                  base = size_by_key.get(base_key)
-                  target = size_by_key.get(target_key)
-                  if base is None or target is None:
-                      lines.append(f"| {label} | n/a | n/a | n/a |")
-                  else:
-                      lines.append(f"| {label} | {base} | {target} | {format_size_delta(base, target)} |")
 
           summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY
