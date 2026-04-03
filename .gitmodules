@@ -1,0 +1,6 @@
+[submodule "subprojects/thorvg-nors"]
+	path = subprojects/thorvg-nors
+	url = https://github.com/Nor-s/thorvg.git
+[submodule "subprojects/thorvg-main"]
+	path = subprojects/thorvg-main
+	url = https://github.com/thorvg/thorvg.git

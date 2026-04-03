@@ -1,0 +1,13 @@
+build
+builddir
+doc
+.vscode
+.idea
+*.swp
+*.tvg
+*.tmp
+*.code-workspace
+.DS_Store
+
+.cache/
+subporjects/SDL2*
