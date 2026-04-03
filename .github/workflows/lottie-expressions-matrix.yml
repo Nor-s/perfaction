@@ -1,12 +1,19 @@
 name: LottieExpressions Matrix
 
 on:
-  pull_request:
-    branches:
-      - main
-  push:
-    branches:
-      - main
+  workflow_dispatch:
+    inputs:
+      platform:
+        description: Platform to run
+        required: true
+        default: all
+        type: choice
+        options:
+          - all
+          - ubuntu
+          - macos
+          - windows-msvc
+          - windows-msys2
 
 permissions:
   contents: read
@@ -14,6 +21,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ github.event.inputs.platform == 'all' || matrix.platform == github.event.inputs.platform }}
     name: ${{ matrix.platform }}
     runs-on: ${{ matrix.runs_on }}
     strategy:
@@ -226,9 +234,28 @@ jobs:
           collect_size() {
             subproject="$1"
             threads="$2"
-            build_dir="build-${subproject}-${threads}"
-            lib_path="./${build_dir}/src/libthorvg-1.so.1.0.0"
+            subproject_dir="subprojects/${subproject}"
+            build_dir="${subproject_dir}/build-size-${threads}"
             size_out="ci-report/${{ matrix.platform }}_${subproject}_${threads}.size.txt"
+
+            meson setup "$build_dir" \
+              -Dbuildtype=release \
+              -Doptimization=s \
+              -Dengines=sw,gl \
+              -Dloaders=all \
+              -Dsavers=all \
+              -Dbindings=capi \
+              -Dextra=lottie_exp,openmp \
+              -Db_sanitize=none \
+              -Dthreads="$threads" \
+              -Ddefault_library=shared
+            meson compile -C "$build_dir"
+
+            lib_path="$(find "$build_dir/src" -maxdepth 1 -type f -name 'libthorvg-1.so*' | sort | head -n 1)"
+            if [ -z "$lib_path" ]; then
+              echo "Failed to locate shared lib in $build_dir/src" >&2
+              exit 1
+            fi
 
             strip "$lib_path"
             size "$lib_path" > "$size_out"
