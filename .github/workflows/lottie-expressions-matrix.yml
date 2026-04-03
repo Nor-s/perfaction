@@ -140,7 +140,6 @@ jobs:
             return $status
           }
 
-          run_case thorvg-main true 0
           run_case thorvg-main false 0
           run_case thorvg-nors false 0
           run_case thorvg-nors true 0
@@ -173,7 +172,6 @@ jobs:
             if ($status -ne 0) { exit $status }
           }
 
-          Invoke-Case -Subproject thorvg-main -Threads true -Sw 0
           Invoke-Case -Subproject thorvg-main -Threads false -Sw 0
           Invoke-Case -Subproject thorvg-nors -Threads false -Sw 0
           Invoke-Case -Subproject thorvg-nors -Threads true -Sw 0
@@ -199,7 +197,6 @@ jobs:
             return $status
           }
 
-          run_case thorvg-main true 0
           run_case thorvg-main false 0
           run_case thorvg-nors false 0
           run_case thorvg-nors true 0
@@ -282,36 +279,39 @@ jobs:
               base = fps_by_key.get(base_key)
               target = fps_by_key.get(target_key)
               if base is None or target is None:
-                  return f"{label} -> n/a"
-              return f"{label} -> {format_delta(base, target)}"
+                  return f"- {label} -> n/a"
+              if abs(target - base) < 0.005:
+                  return f"- {label} -> 0%"
+              return f"- {label} -> {format_delta(base, target)}"
 
           platforms = [p for p in platform_labels if any(key[0] == p for key in fps_by_key)]
           lines = ["## LottieExpressions Summary", ""]
 
           for index, platform in enumerate(platforms):
-              lines.append(platform_labels[platform])
-              lines.append("1. thread option enabled")
+              lines.append(f"### {platform_labels[platform]}")
+              lines.append("")
+              lines.append("#### 1. thread option enabled")
               lines.append("")
               lines.append(
                   comparison_line(
-                      "main + 0 thread vs feature(nors) + 4 threads",
-                      (platform, "thorvg-main", "true", "0"),
-                      (platform, "thorvg-nors", "true", "4"),
-                  )
-              )
-              lines.append(
-                  comparison_line(
-                      "main + 0 thread vs feature(nors) + 0 threads",
-                      (platform, "thorvg-main", "true", "0"),
+                      "feature + 0 threads",
+                      (platform, "thorvg-main", "false", "0"),
                       (platform, "thorvg-nors", "true", "0"),
                   )
               )
+              lines.append(
+                  comparison_line(
+                      "feature + 4 threads",
+                      (platform, "thorvg-main", "false", "0"),
+                      (platform, "thorvg-nors", "true", "4"),
+                  )
+              )
               lines.append("")
-              lines.append("2. thread option disabled")
+              lines.append("#### 2. thread option disabled")
               lines.append("")
               lines.append(
                   comparison_line(
-                      "main + 0 thread vs feature(nors) + 0 threads",
+                      "feature + 0 threads",
                       (platform, "thorvg-main", "false", "0"),
                       (platform, "thorvg-nors", "false", "0"),
                   )
