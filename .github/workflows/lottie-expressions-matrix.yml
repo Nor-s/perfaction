@@ -1,0 +1,155 @@
+name: LottieExpressions Matrix
+
+on:
+  pull_request:
+    branches:
+      - main
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: ${{ matrix.platform }} / ${{ matrix.thorvg_subproject }} / threads=${{ matrix.threads }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - ubuntu
+          - macos
+          - windows-msvc
+          - windows-msys2
+        thorvg_subproject:
+          - thorvg-main
+          - thorvg-nors
+        threads:
+          - true
+          - false
+        include:
+          - platform: ubuntu
+            runs_on: ubuntu-latest
+          - platform: macos
+            runs_on: macos-latest
+          - platform: windows-msvc
+            runs_on: windows-latest
+          - platform: windows-msys2
+            runs_on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set Up Python
+        if: matrix.platform == 'windows-msvc'
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Set Up MSVC Developer Command Prompt
+        if: matrix.platform == 'windows-msvc'
+        uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Set Up MSYS2
+        if: matrix.platform == 'windows-msys2'
+        uses: msys2/setup-msys2@v2
+        with:
+          msystem: UCRT64
+          update: true
+          install: >-
+            base-devel
+            git
+            mingw-w64-ucrt-x86_64-gcc
+            mingw-w64-ucrt-x86_64-meson
+            mingw-w64-ucrt-x86_64-ninja
+            mingw-w64-ucrt-x86_64-SDL2
+
+      - name: Install Packages (Ubuntu)
+        if: matrix.platform == 'ubuntu'
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build libsdl2-dev libgl1-mesa-dev
+
+      - name: Install Packages (macOS)
+        if: matrix.platform == 'macos'
+        shell: bash
+        run: |
+          brew update
+          brew install meson ninja sdl2
+          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix sdl2)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+
+      - name: Install Packages (Windows MSVC)
+        if: matrix.platform == 'windows-msvc'
+        shell: powershell
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install meson ninja
+          choco install pkgconfiglite -y
+          $vcpkgRoot = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          git clone https://github.com/microsoft/vcpkg.git $vcpkgRoot
+          & "$vcpkgRoot\bootstrap-vcpkg.bat" -disableMetrics
+          & "$vcpkgRoot\vcpkg.exe" install sdl2:x64-windows
+          "PKG_CONFIG_PATH=$vcpkgRoot\installed\x64-windows\lib\pkgconfig;$vcpkgRoot\installed\x64-windows\share\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "CMAKE_PREFIX_PATH=$vcpkgRoot\installed\x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+      - name: Configure and Build (POSIX)
+        if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
+        shell: bash
+        run: |
+          meson setup build -Dthorvg_subproject=${{ matrix.thorvg_subproject }} -Dthreads=${{ matrix.threads }}
+          meson compile -C build
+
+      - name: Configure and Build (Windows MSVC)
+        if: matrix.platform == 'windows-msvc'
+        shell: powershell
+        run: |
+          meson setup build "-Dthorvg_subproject=${{ matrix.thorvg_subproject }}" "-Dthreads=${{ matrix.threads }}"
+          meson compile -C build
+
+      - name: Configure and Build (Windows MSYS2)
+        if: matrix.platform == 'windows-msys2'
+        shell: msys2 {0}
+        run: |
+          meson setup build -Dthorvg_subproject=${{ matrix.thorvg_subproject }} -Dthreads=${{ matrix.threads }}
+          meson compile -C build
+
+      - name: Run LottieExpressions sw 0 (POSIX)
+        if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
+        shell: bash
+        run: |
+          ./build/src/LottieExpressions sw 0
+
+      - name: Run LottieExpressions sw 4 (POSIX, thorvg-nors threaded)
+        if: (matrix.platform == 'ubuntu' || matrix.platform == 'macos') && matrix.thorvg_subproject == 'thorvg-nors' && matrix.threads == true
+        shell: bash
+        run: |
+          ./build/src/LottieExpressions sw 4
+
+      - name: Run LottieExpressions sw 0 (Windows MSVC)
+        if: matrix.platform == 'windows-msvc'
+        shell: powershell
+        run: |
+          .\build\src\LottieExpressions.exe sw 0
+
+      - name: Run LottieExpressions sw 4 (Windows MSVC, thorvg-nors threaded)
+        if: matrix.platform == 'windows-msvc' && matrix.thorvg_subproject == 'thorvg-nors' && matrix.threads == true
+        shell: powershell
+        run: |
+          .\build\src\LottieExpressions.exe sw 4
+
+      - name: Run LottieExpressions sw 0 (Windows MSYS2)
+        if: matrix.platform == 'windows-msys2'
+        shell: msys2 {0}
+        run: |
+          ./build/src/LottieExpressions.exe sw 0
+
+      - name: Run LottieExpressions sw 4 (Windows MSYS2, thorvg-nors threaded)
+        if: matrix.platform == 'windows-msys2' && matrix.thorvg_subproject == 'thorvg-nors' && matrix.threads == true
+        shell: msys2 {0}
+        run: |
+          ./build/src/LottieExpressions.exe sw 4
