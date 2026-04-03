@@ -58,40 +58,7 @@ jobs:
             /usr/bin/time -v -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw 0 > "$raw_log" 2>&1
             status=$?
             tail -n 30 "$raw_log" > "$final_log"
-            python3 - "$state" "$metrics_file" "${repo_root}/ci-report/runtime_metrics.tsv" <<'PY'
-            import re
-            import sys
-            from pathlib import Path
-
-            state = sys.argv[1]
-            metrics_path = Path(sys.argv[2])
-            out_path = Path(sys.argv[3])
-            text = metrics_path.read_text(encoding="utf-8", errors="replace")
-
-            patterns = {
-                "rss_kb": r"Maximum resident set size \(kbytes\):\s*(\d+)",
-                "user_sec": r"User time \(seconds\):\s*([0-9.]+)",
-                "sys_sec": r"System time \(seconds\):\s*([0-9.]+)",
-                "elapsed": r"Elapsed \(wall clock\) time \(h:mm:ss or m:ss\):\s*([0-9:.]+)",
-                "vol_cs": r"Voluntary context switches:\s*(\d+)",
-                "invol_cs": r"Involuntary context switches:\s*(\d+)",
-            }
-
-            def extract(key):
-                match = re.search(patterns[key], text)
-                return match.group(1) if match else ""
-
-            values = [
-                state,
-                extract("rss_kb"),
-                extract("user_sec"),
-                extract("sys_sec"),
-                extract("elapsed"),
-                extract("vol_cs"),
-                extract("invol_cs"),
-            ]
-            out_path.open("a", encoding="utf-8").write("\t".join(values) + "\n")
-            PY
+            python3 -c "import re, sys, pathlib; state=sys.argv[1]; metrics_path=pathlib.Path(sys.argv[2]); out_path=pathlib.Path(sys.argv[3]); text=metrics_path.read_text(encoding='utf-8', errors='replace'); patterns={'rss_kb': r'Maximum resident set size \\(kbytes\\):\\s*(\\d+)', 'user_sec': r'User time \\(seconds\\):\\s*([0-9.]+)', 'sys_sec': r'System time \\(seconds\\):\\s*([0-9.]+)', 'elapsed': r'Elapsed \\(wall clock\\) time \\(h:mm:ss or m:ss\\):\\s*([0-9:.]+)', 'vol_cs': r'Voluntary context switches:\\s*(\\d+)', 'invol_cs': r'Involuntary context switches:\\s*(\\d+)'}; extract=lambda key: (re.search(patterns[key], text).group(1) if re.search(patterns[key], text) else ''); values=[state, extract('rss_kb'), extract('user_sec'), extract('sys_sec'), extract('elapsed'), extract('vol_cs'), extract('invol_cs')]; out_path.open('a', encoding='utf-8').write('\\t'.join(values)+'\\n')" "$state" "$metrics_file" "${repo_root}/ci-report/runtime_metrics.tsv"
             return $status
           }
 
