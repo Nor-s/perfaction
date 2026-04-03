@@ -29,14 +29,17 @@ jobs:
       - name: Collect Binary Size Metrics
         shell: bash
         run: |
+          repo_root="$PWD"
+
           collect_size() {
             subproject="$1"
             threads="$2"
             subproject_dir="subprojects/${subproject}"
-            build_dir="build-size-${subproject}-${threads}"
-            size_out="ci-report/ubuntu_${subproject}_${threads}.size.txt"
+            build_dir="build-size-${threads}"
+            size_out="${repo_root}/ci-report/ubuntu_${subproject}_${threads}.size.txt"
 
-            meson setup "$build_dir" "$subproject_dir" \
+            pushd "$subproject_dir" > /dev/null
+            meson setup "$build_dir" \
               -Dbuildtype=release \
               -Doptimization=s \
               -Dengines=sw \
@@ -46,21 +49,24 @@ jobs:
               -Dextra=lottie_exp,openmp \
               -Db_sanitize=none \
               -Dthreads="$threads" \
+              -Ddefault_library=shared
             meson compile -C "$build_dir"
 
             lib_path="$(find "$build_dir/src" -maxdepth 1 -type f -name 'libthorvg-1.so*' | sort | head -n 1)"
             if [ -z "$lib_path" ]; then
               echo "Failed to locate shared lib in $build_dir/src" >&2
+              popd > /dev/null
               exit 1
             fi
 
             strip "$lib_path"
             size "$lib_path" > "$size_out"
             bytes=$(stat -c%s "$lib_path")
-            printf '%s\t%s\t%s\n' "$subproject" "$threads" "$bytes" >> ci-report/ubuntu_binary_sizes.tsv
+            popd > /dev/null
+            printf '%s\t%s\t%s\n' "$subproject" "$threads" "$bytes" >> "${repo_root}/ci-report/ubuntu_binary_sizes.tsv"
           }
 
-          : > ci-report/ubuntu_binary_sizes.tsv
+          : > "${repo_root}/ci-report/ubuntu_binary_sizes.tsv"
           collect_size thorvg-main false
           collect_size thorvg-main true
           collect_size thorvg-nors false
