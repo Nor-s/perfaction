@@ -1,9 +1,6 @@
 name: LottieExpressions Matrix
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       platform:
@@ -22,9 +19,12 @@ permissions:
   contents: read
   actions: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   build:
-    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'lottie') }}
     name: ${{ matrix.platform }}
     runs-on: ${{ matrix.runs_on }}
     strategy:
@@ -51,6 +51,22 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.x'
+
+      - name: Prepare vcpkg binary cache
+        if: matrix.platform == 'windows-msvc'
+        shell: powershell
+        run: |
+          $binaryCache = Join-Path $env:GITHUB_WORKSPACE '.cache\vcpkg-binary-cache'
+          New-Item -ItemType Directory -Force -Path $binaryCache | Out-Null
+
+      - name: Cache vcpkg binary cache
+        if: matrix.platform == 'windows-msvc'
+        uses: actions/cache@v4
+        with:
+          path: .cache/vcpkg-binary-cache
+          key: windows-msvc-vcpkg-binary-${{ runner.os }}-${{ hashFiles('.github/workflows/lottie-expressions-matrix.yml') }}
+          restore-keys: |
+            windows-msvc-vcpkg-binary-${{ runner.os }}-
 
       - name: Set Up MSVC Developer Command Prompt
         if: matrix.platform == 'windows-msvc'
@@ -95,8 +111,11 @@ jobs:
           python -m pip install meson ninja
           choco install pkgconfiglite -y
           $vcpkgRoot = Join-Path $env:RUNNER_TEMP 'vcpkg'
+          $binaryCache = Join-Path $env:GITHUB_WORKSPACE '.cache\vcpkg-binary-cache'
           git clone https://github.com/microsoft/vcpkg.git $vcpkgRoot
           $env:VCPKG_ROOT = $vcpkgRoot
+          $env:VCPKG_DEFAULT_BINARY_CACHE = $binaryCache
+          $env:VCPKG_BINARY_SOURCES = "clear;files,$binaryCache,readwrite"
           & "$vcpkgRoot\bootstrap-vcpkg.bat" -disableMetrics
           $maxAttempts = 3
           for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
@@ -110,6 +129,8 @@ jobs:
             Write-Host "vcpkg install failed on attempt $attempt/$maxAttempts. Retrying after backoff..."
             Start-Sleep -Seconds (15 * $attempt)
           }
+          "VCPKG_DEFAULT_BINARY_CACHE=$binaryCache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "VCPKG_BINARY_SOURCES=clear;files,$binaryCache,readwrite" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "PKG_CONFIG_PATH=$vcpkgRoot\installed\x64-windows\lib\pkgconfig;$vcpkgRoot\installed\x64-windows\share\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CMAKE_PREFIX_PATH=$vcpkgRoot\installed\x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "$vcpkgRoot\installed\x64-windows\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
@@ -231,7 +252,7 @@ jobs:
 
   report:
     name: LottieExpressions Report
-    if: ${{ always() && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'lottie')) }}
+    if: ${{ always() }}
     needs: [build]
     runs-on: ubuntu-latest
     steps:
