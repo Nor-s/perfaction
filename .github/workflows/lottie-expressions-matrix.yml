@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   build:
@@ -133,38 +134,131 @@ jobs:
           meson setup build -Dthorvg_subproject=${{ matrix.thorvg_subproject }} -Dthreads=${{ matrix.threads }}
           meson compile -C build
 
+      - name: Prepare report directory (POSIX)
+        if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
+        shell: bash
+        run: |
+          mkdir -p ci-report
+
+      - name: Prepare report directory (Windows MSVC)
+        if: matrix.platform == 'windows-msvc'
+        shell: powershell
+        run: |
+          New-Item -ItemType Directory -Force -Path ci-report | Out-Null
+
+      - name: Prepare report directory (Windows MSYS2)
+        if: matrix.platform == 'windows-msys2'
+        shell: msys2 {0}
+        run: |
+          mkdir -p ci-report
+
       - name: Run LottieExpressions sw 0 (POSIX)
         if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
         shell: bash
         run: |
-          ./build/src/LottieExpressions sw 0
+          raw_log="ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.tmp"
+          final_log="ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.log"
+          ./build/src/LottieExpressions sw 0 > "$raw_log" 2>&1
+          status=$?
+          tail -n 30 "$raw_log" > "$final_log"
+          exit $status
 
       - name: Run LottieExpressions sw 4 (POSIX, thorvg-nors threaded)
         if: (matrix.platform == 'ubuntu' || matrix.platform == 'macos') && matrix.thorvg_subproject == 'thorvg-nors' && matrix.threads == true
         shell: bash
         run: |
-          ./build/src/LottieExpressions sw 4
+          raw_log="ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.tmp"
+          final_log="ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.log"
+          ./build/src/LottieExpressions sw 4 > "$raw_log" 2>&1
+          status=$?
+          tail -n 30 "$raw_log" > "$final_log"
+          exit $status
 
       - name: Run LottieExpressions sw 0 (Windows MSVC)
         if: matrix.platform == 'windows-msvc'
         shell: powershell
         run: |
-          .\build\src\LottieExpressions.exe sw 0
+          $rawLog = "ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.tmp"
+          $finalLog = "ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.log"
+          & .\build\src\LottieExpressions.exe sw 0 *>&1 | Tee-Object -FilePath $rawLog
+          $status = $LASTEXITCODE
+          Get-Content $rawLog -Tail 30 | Set-Content $finalLog
+          exit $status
 
       - name: Run LottieExpressions sw 4 (Windows MSVC, thorvg-nors threaded)
         if: matrix.platform == 'windows-msvc' && matrix.thorvg_subproject == 'thorvg-nors' && matrix.threads == true
         shell: powershell
         run: |
-          .\build\src\LottieExpressions.exe sw 4
+          $rawLog = "ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.tmp"
+          $finalLog = "ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.log"
+          & .\build\src\LottieExpressions.exe sw 4 *>&1 | Tee-Object -FilePath $rawLog
+          $status = $LASTEXITCODE
+          Get-Content $rawLog -Tail 30 | Set-Content $finalLog
+          exit $status
 
       - name: Run LottieExpressions sw 0 (Windows MSYS2)
         if: matrix.platform == 'windows-msys2'
         shell: msys2 {0}
         run: |
-          ./build/src/LottieExpressions.exe sw 0
+          raw_log="ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.tmp"
+          final_log="ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.log"
+          ./build/src/LottieExpressions.exe sw 0 > "$raw_log" 2>&1
+          status=$?
+          tail -n 30 "$raw_log" > "$final_log"
+          exit $status
 
       - name: Run LottieExpressions sw 4 (Windows MSYS2, thorvg-nors threaded)
         if: matrix.platform == 'windows-msys2' && matrix.thorvg_subproject == 'thorvg-nors' && matrix.threads == true
         shell: msys2 {0}
         run: |
-          ./build/src/LottieExpressions.exe sw 4
+          raw_log="ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.tmp"
+          final_log="ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.log"
+          ./build/src/LottieExpressions.exe sw 4 > "$raw_log" 2>&1
+          status=$?
+          tail -n 30 "$raw_log" > "$final_log"
+          exit $status
+
+      - name: Upload Lottie logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: lottie-logs-${{ matrix.platform }}-${{ matrix.thorvg_subproject }}-${{ matrix.threads }}
+          path: ci-report/*.log
+          if-no-files-found: warn
+
+  report:
+    name: LottieExpressions Report
+    if: ${{ always() }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Lottie log artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: all-logs
+          pattern: lottie-logs-*
+          merge-multiple: false
+
+      - name: Write Lottie summary
+        shell: bash
+        run: |
+          echo "## LottieExpressions Log Summary" >> "$GITHUB_STEP_SUMMARY"
+          echo "" >> "$GITHUB_STEP_SUMMARY"
+          shopt -s nullglob
+          logs=(all-logs/*/*.log)
+          if [ ${#logs[@]} -eq 0 ]; then
+            echo "No log artifacts were collected." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          IFS=$'\n' sorted_logs=($(printf '%s\n' "${logs[@]}" | sort))
+          unset IFS
+
+          for log in "${sorted_logs[@]}"; do
+            echo "### $(basename "$log")" >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+            echo '```text' >> "$GITHUB_STEP_SUMMARY"
+            cat "$log" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            echo "" >> "$GITHUB_STEP_SUMMARY"
+          done
