@@ -21,21 +21,21 @@ permissions:
 
 jobs:
   build:
-    if: ${{ github.event.inputs.platform == 'all' || matrix.platform == github.event.inputs.platform }}
     name: ${{ matrix.platform }}
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - platform: ubuntu
-            runs_on: ubuntu-latest
-          - platform: macos
-            runs_on: macos-latest
-          - platform: windows-msvc
-            runs_on: windows-latest
-          - platform: windows-msys2
-            runs_on: windows-latest
+      matrix: ${{ fromJSON(
+        github.event.inputs.platform == 'ubuntu' &&
+        '{"include":[{"platform":"ubuntu","runs_on":"ubuntu-latest"}]}' ||
+        github.event.inputs.platform == 'macos' &&
+        '{"include":[{"platform":"macos","runs_on":"macos-latest"}]}' ||
+        github.event.inputs.platform == 'windows-msvc' &&
+        '{"include":[{"platform":"windows-msvc","runs_on":"windows-latest"}]}' ||
+        github.event.inputs.platform == 'windows-msys2' &&
+        '{"include":[{"platform":"windows-msys2","runs_on":"windows-latest"}]}' ||
+        '{"include":[{"platform":"ubuntu","runs_on":"ubuntu-latest"},{"platform":"macos","runs_on":"macos-latest"},{"platform":"windows-msvc","runs_on":"windows-latest"},{"platform":"windows-msys2","runs_on":"windows-latest"}]}'
+        ) }}
 
     steps:
       - uses: actions/checkout@v4
