@@ -33,20 +33,19 @@ jobs:
             subproject="$1"
             threads="$2"
             subproject_dir="subprojects/${subproject}"
-            build_dir="${subproject_dir}/build-size-${threads}"
+            build_dir="build-size-${subproject}-${threads}"
             size_out="ci-report/ubuntu_${subproject}_${threads}.size.txt"
 
-            meson setup "$build_dir" \
+            meson setup "$build_dir" "$subproject_dir" \
               -Dbuildtype=release \
               -Doptimization=s \
-              -Dengines=sw,gl \
+              -Dengines=sw \
               -Dloaders=all \
               -Dsavers=all \
               -Dbindings=capi \
               -Dextra=lottie_exp,openmp \
               -Db_sanitize=none \
               -Dthreads="$threads" \
-              -Ddefault_library=shared
             meson compile -C "$build_dir"
 
             lib_path="$(find "$build_dir/src" -maxdepth 1 -type f -name 'libthorvg-1.so*' | sort | head -n 1)"
