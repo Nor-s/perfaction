@@ -61,9 +61,15 @@ jobs:
 
             strip "$lib_path"
             size "$lib_path" > "$size_out"
-            bytes=$(stat -c%s "$lib_path")
+            read -r text_size data_size _ < <(awk 'NR==2 {print $1, $2, $3}' "$size_out")
+            total_size=$((text_size + data_size))
             popd > /dev/null
-            printf '%s\t%s\t%s\n' "$subproject" "$threads" "$bytes" >> "${repo_root}/ci-report/ubuntu_binary_sizes.tsv"
+            printf '%s\t%s\t%s\t%s\t%s\n' \
+              "$subproject" \
+              "$threads" \
+              "$text_size" \
+              "$data_size" \
+              "$total_size" >> "${repo_root}/ci-report/ubuntu_binary_sizes.tsv"
           }
 
           : > "${repo_root}/ci-report/ubuntu_binary_sizes.tsv"
@@ -114,12 +120,16 @@ jobs:
               for line in size_tsv.read_text(encoding="utf-8", errors="replace").splitlines():
                   if not line.strip():
                       continue
-                  subproject, thread_flag, byte_count = line.split("\t")
-                  size_by_key[(subproject, thread_flag)] = int(byte_count)
+                  subproject, thread_flag, text_size, data_size, total_size = line.split("\t")
+                  size_by_key[(subproject, thread_flag)] = {
+                      "text": int(text_size),
+                      "data": int(data_size),
+                      "total": int(total_size),
+                  }
 
-          def format_size_delta(base, target):
-              diff = target - base
-              pct = ((target / base) - 1.0) * 100.0
+          def format_size_delta(base_total, target_total):
+              diff = target_total - base_total
+              pct = ((target_total / base_total) - 1.0) * 100.0
               pct_sign = "+" if pct > 0 else ""
               diff_sign = "+" if diff > 0 else ""
               return f"{diff_sign}{diff} bytes ({pct_sign}{pct:.2f}%)"
@@ -132,17 +142,21 @@ jobs:
           lines = [
               "## Ubuntu Binary Size",
               "",
-              "| Comparison | Base Bytes | Target Bytes | Delta |",
-              "|---|---:|---:|---:|",
+              "| Comparison | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
+              "|---|---:|---:|---:|---:|---:|---:|---:|",
           ]
 
           for label, base_key, target_key in comparisons:
               base = size_by_key.get(base_key)
               target = size_by_key.get(target_key)
               if base is None or target is None:
-                  lines.append(f"| {label} | n/a | n/a | n/a |")
+                  lines.append(f"| {label} | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
               else:
-                  lines.append(f"| {label} | {base} | {target} | {format_size_delta(base, target)} |")
+                  lines.append(
+                      f"| {label} | {base['text']} | {base['data']} | {base['total']} | "
+                      f"{target['text']} | {target['data']} | {target['total']} | "
+                      f"{format_size_delta(base['total'], target['total'])} |"
+                  )
 
           summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY
