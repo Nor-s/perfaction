@@ -15,6 +15,7 @@ add_project_arguments('-DEXAMPLE_DIR="@0@/res"'.format(example_dir), language : 
 # Get options
 threads_opt = get_option('threads')
 thorvg_subproject = get_option('thorvg_subproject')
+thorvg_linkage = get_option('thorvg_linkage')
 
 thorvg_proj = subproject(thorvg_subproject, default_options: [
   'buildtype=' + get_option('buildtype'),
@@ -26,7 +27,7 @@ thorvg_proj = subproject(thorvg_subproject, default_options: [
   'extra=lottie_exp,openmp',
   'b_sanitize=none',
   'threads=' + (threads_opt ? 'true' : 'false'),
-  'default_library=static'
+  'default_library=' + thorvg_linkage
   # 'log=true'
 ])
 thorvg_dep = thorvg_proj.get_variable('thorvg_dep')

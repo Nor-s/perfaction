@@ -1,0 +1,204 @@
+name: Ubuntu Binary Size Merge
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: ThorVG branch to merge into main locally
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: ubuntu
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+
+      - name: Install Packages
+        shell: bash
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y meson ninja-build libsdl2-dev libgl1-mesa-dev
+
+      - name: Prepare report directory
+        shell: bash
+        run: |
+          mkdir -p ci-report
+
+      - name: Collect Binary Size Metrics
+        shell: bash
+        run: |
+          repo_root="$PWD"
+          target_branch="${{ github.event.inputs.branch }}"
+          subproject_dir="subprojects/thorvg-main"
+
+          collect_size() {
+            state="$1"
+            build_dir="build-${state}"
+            size_out="${repo_root}/ci-report/ubuntu_${state}.size.txt"
+
+            meson setup "$build_dir" \
+              -Dbuildtype=release \
+              -Doptimization=s \
+              -Dengines=sw \
+              -Dloaders=all \
+              -Dsavers=all \
+              -Dbindings=capi \
+              -Dextra=lottie_exp,openmp \
+              -Db_sanitize=none \
+              -Dthreads=true \
+              -Ddefault_library=shared
+            meson compile -C "$build_dir"
+
+            lib_path="$(find "$build_dir/src" -maxdepth 1 -type f -name 'libthorvg-1.so*' | sort | head -n 1)"
+            if [ -z "$lib_path" ]; then
+              echo "Failed to locate shared lib in $build_dir/src" >&2
+              exit 1
+            fi
+
+            strip "$lib_path"
+            size "$lib_path" > "$size_out"
+            read -r text_size data_size _ < <(awk 'NR==2 {print $1, $2, $3}' "$size_out")
+            total_size=$((text_size + data_size))
+            printf '%s\t%s\t%s\t%s\n' \
+              "$state" \
+              "$text_size" \
+              "$data_size" \
+              "$total_size" >> "${repo_root}/ci-report/ubuntu_binary_sizes.tsv"
+          }
+
+          : > "${repo_root}/ci-report/ubuntu_binary_sizes.tsv"
+          printf 'branch\t%s\n' "$target_branch" > "${repo_root}/ci-report/merge_status.tsv"
+
+          pushd "$subproject_dir" > /dev/null
+
+          git fetch origin \
+            "refs/heads/main:refs/remotes/origin/main" \
+            "refs/heads/${target_branch}:refs/remotes/origin/${target_branch}"
+
+          git checkout --detach origin/main
+          collect_size base
+
+          git switch -C ci-merge-check origin/main
+          if ! git merge --no-commit --no-ff "origin/${target_branch}"; then
+            printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/merge_status.tsv"
+            git merge --abort || true
+            popd > /dev/null
+            exit 1
+          fi
+
+          printf 'status\tmerged\n' >> "${repo_root}/ci-report/merge_status.tsv"
+          collect_size merged
+
+          popd > /dev/null
+
+      - name: Upload Binary Size Artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ubuntu-binary-size-merge
+          path: |
+            ci-report/*.size.txt
+            ci-report/*.tsv
+          if-no-files-found: warn
+
+  report:
+    name: Ubuntu Binary Size Merge Report
+    if: ${{ always() }}
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Binary Size Artifacts
+        uses: actions/download-artifact@v5
+        with:
+          path: all-size
+          pattern: ubuntu-binary-size-merge
+          merge-multiple: false
+
+      - name: Write Binary Size Summary
+        shell: bash
+        env:
+          BRANCH_NAME: ${{ github.event.inputs.branch }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          branch_name = os.environ["BRANCH_NAME"]
+          size_tsv_files = sorted(Path("all-size").glob("*/*.tsv"))
+
+          if not size_tsv_files:
+              summary_path.write_text("## Ubuntu Binary Size Merge\n\nNo size artifacts were collected.\n", encoding="utf-8")
+              raise SystemExit(0)
+
+          size_by_key = {}
+          merge_status = {"branch": branch_name, "status": "unknown"}
+
+          for size_tsv in size_tsv_files:
+              if size_tsv.name == "merge_status.tsv":
+                  for line in size_tsv.read_text(encoding="utf-8", errors="replace").splitlines():
+                      if not line.strip():
+                          continue
+                      key, value = line.split("\t", 1)
+                      merge_status[key] = value
+                  continue
+
+              for line in size_tsv.read_text(encoding="utf-8", errors="replace").splitlines():
+                  if not line.strip():
+                      continue
+                  state, text_size, data_size, total_size = line.split("\t")
+                  size_by_key[state] = {
+                      "text": int(text_size),
+                      "data": int(data_size),
+                      "total": int(total_size),
+                  }
+
+          def format_size_delta(base_total, target_total):
+              diff = target_total - base_total
+              pct = ((target_total / base_total) - 1.0) * 100.0
+              pct_sign = "+" if pct > 0 else ""
+              diff_sign = "+" if diff > 0 else ""
+              return f"{diff_sign}{diff} bytes ({pct_sign}{pct:.2f}%)"
+
+          lines = [
+              "## Ubuntu Binary Size Merge",
+              "",
+              f"- Branch: `{merge_status.get('branch', branch_name)}`",
+              f"- Status: `{merge_status.get('status', 'unknown')}`",
+              "",
+          ]
+
+          if merge_status.get("status") != "merged":
+              lines.append("Merge conflict occurred. Size comparison was not completed.")
+              summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+              raise SystemExit(0)
+
+          lines.extend([
+              "| Comparison | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
+              "|---|---:|---:|---:|---:|---:|---:|---:|",
+          ])
+
+          base = size_by_key.get("base")
+          target = size_by_key.get("merged")
+          if base is None or target is None:
+              lines.append(f"| main vs main+{branch_name} | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
+          else:
+              lines.append(
+                  f"| main vs main+{branch_name} | {base['text']} | {base['data']} | {base['total']} | "
+                  f"{target['text']} | {target['data']} | {target['total']} | "
+                  f"{format_size_delta(base['total'], target['total'])} |"
+              )
+
+          summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
