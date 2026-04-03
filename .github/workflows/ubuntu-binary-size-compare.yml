@@ -1,4 +1,4 @@
-name: Ubuntu Binary Size Merge
+name: Ubuntu Binary Size Compare
 
 on:
   workflow_dispatch:
@@ -85,6 +85,7 @@ jobs:
           git fetch origin \
             "refs/heads/main:refs/remotes/origin/main" \
             "refs/heads/${target_branch}:refs/remotes/origin/${target_branch}"
+          git log --oneline --no-merges "origin/main..origin/${target_branch}" > "${repo_root}/ci-report/feature_commits.txt" || true
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -109,14 +110,15 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: ubuntu-binary-size-merge
+          name: ubuntu-binary-size-compare
           path: |
             ci-report/*.size.txt
             ci-report/*.tsv
+            ci-report/*.txt
           if-no-files-found: warn
 
   report:
-    name: Ubuntu Binary Size Merge Report
+    name: Ubuntu Binary Size Report
     if: ${{ always() }}
     needs: [build]
     runs-on: ubuntu-latest
@@ -125,8 +127,8 @@ jobs:
         uses: actions/download-artifact@v5
         with:
           path: all-size
-          pattern: ubuntu-binary-size-merge
-          merge-multiple: false
+          pattern: ubuntu-binary-size-compare
+          merge-multiple: true
 
       - name: Write Binary Size Summary
         shell: bash
@@ -139,10 +141,11 @@ jobs:
 
           summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
           branch_name = os.environ["BRANCH_NAME"]
-          size_tsv_files = sorted(Path("all-size").glob("*/*.tsv"))
+          size_tsv_files = sorted(Path("all-size").glob("*.tsv"))
+          commits_path = Path("all-size/feature_commits.txt")
 
           if not size_tsv_files:
-              summary_path.write_text("## Ubuntu Binary Size Merge\n\nNo size artifacts were collected.\n", encoding="utf-8")
+              summary_path.write_text(f"## Binary Size (main vs {branch_name})\n\nNo size artifacts were collected.\n", encoding="utf-8")
               raise SystemExit(0)
 
           size_by_key = {}
@@ -175,12 +178,27 @@ jobs:
               return f"{diff_sign}{diff} bytes ({pct_sign}{pct:.2f}%)"
 
           lines = [
-              "## Ubuntu Binary Size Merge",
+              f"## Binary Size (main vs {branch_name})",
               "",
               f"- Branch: `{merge_status.get('branch', branch_name)}`",
               f"- Status: `{merge_status.get('status', 'unknown')}`",
               "",
           ]
+
+          if commits_path.exists():
+              commit_lines = [line for line in commits_path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+          else:
+              commit_lines = []
+
+          lines.append("### Added Commits")
+          lines.append("")
+          if commit_lines:
+              lines.append("```text")
+              lines.extend(commit_lines)
+              lines.append("```")
+          else:
+              lines.append("No additional commits.")
+          lines.append("")
 
           if merge_status.get("status") != "merged":
               lines.append("Merge conflict occurred. Size comparison was not completed.")

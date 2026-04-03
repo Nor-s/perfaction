@@ -14,6 +14,7 @@ concurrency:
 
 jobs:
   build:
+    if: ${{ github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'expressions') }}
     name: ${{ matrix.platform }}
     runs-on: ${{ matrix.runs_on }}
     strategy:
@@ -93,7 +94,7 @@ jobs:
 
   report:
     name: LottieExpressions Light Report
-    if: ${{ always() }}
+    if: ${{ always() && (github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, 'expressions')) }}
     needs: [build]
     runs-on: ubuntu-latest
     steps:
@@ -147,7 +148,7 @@ jobs:
           def format_delta(base, target):
               pct = ((target / base) - 1.0) * 100.0
               sign = "+" if pct > 0 else ""
-              return f"{sign}{pct:.2f}% ({base:.2f} -> {target:.2f} fps)"
+              return f"{sign}{pct:.2f}%"
 
           def comparison_line(label, base_key, target_key):
               base = fps_by_key.get(base_key)
