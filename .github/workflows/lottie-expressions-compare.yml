@@ -184,21 +184,22 @@ jobs:
           : > "${repo_root}/ci-report/${platform}_runtime_metrics.tsv"
 
           pushd "$subproject_dir" > /dev/null
-          git fetch origin \
-            "refs/heads/main:refs/remotes/origin/main" \
-            "refs/heads/${target_branch}:refs/remotes/origin/${target_branch}"
-          git log --oneline --no-merges "origin/main..origin/${target_branch}" > "${repo_root}/ci-report/${platform}_feature_commits.txt" || true
+          git fetch origin "refs/heads/main"
+          main_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          git fetch origin "refs/heads/${target_branch}"
+          feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/${platform}_feature_commits.txt" || true
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git checkout --detach origin/main
+          git checkout --detach "${main_commit}"
           popd > /dev/null
           collect_perf base
 
           pushd "$subproject_dir" > /dev/null
-          git switch -C ci-merge-check origin/main
-          if ! git merge --no-commit --no-ff "origin/${target_branch}"; then
+          git switch -C ci-merge-check "${main_commit}"
+          if ! git merge --no-commit --no-ff "${feature_commit}"; then
             printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
             git merge --abort || true
             popd > /dev/null
@@ -237,17 +238,20 @@ jobs:
 
           "branch`t$targetBranch" | Set-Content "ci-report/${platform}_merge_status.tsv"
           Set-Location $subprojectDir
-          git fetch origin "refs/heads/main:refs/remotes/origin/main" "refs/heads/$targetBranch:refs/remotes/origin/$targetBranch"
-          git log --oneline --no-merges "origin/main..origin/$targetBranch" | Set-Content "$repoRoot/ci-report/${platform}_feature_commits.txt"
+          git fetch origin "refs/heads/main"
+          $mainCommit = (git rev-parse "FETCH_HEAD^{commit}").Trim()
+          git fetch origin "refs/heads/$targetBranch"
+          $featureCommit = (git rev-parse "FETCH_HEAD^{commit}").Trim()
+          git log --oneline --no-merges "$mainCommit..$featureCommit" | Set-Content "$repoRoot/ci-report/${platform}_feature_commits.txt"
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout --detach origin/main
+          git checkout --detach $mainCommit
           Set-Location $repoRoot
           Invoke-Perf -State base
 
           Set-Location $subprojectDir
-          git checkout -B ci-merge-check origin/main
-          git merge --no-commit --no-ff "origin/$targetBranch"
+          git checkout -B ci-merge-check $mainCommit
+          git merge --no-commit --no-ff $featureCommit
           if ($LASTEXITCODE -ne 0) {
             "status`tmerge-conflict" | Add-Content "$repoRoot/ci-report/${platform}_merge_status.tsv"
             git merge --abort
@@ -288,21 +292,22 @@ jobs:
           : > "${repo_root}/ci-report/${platform}_runtime_metrics.tsv"
 
           pushd "$subproject_dir" > /dev/null
-          git fetch origin \
-            "refs/heads/main:refs/remotes/origin/main" \
-            "refs/heads/${target_branch}:refs/remotes/origin/${target_branch}"
-          git log --oneline --no-merges "origin/main..origin/${target_branch}" > "${repo_root}/ci-report/${platform}_feature_commits.txt" || true
+          git fetch origin "refs/heads/main"
+          main_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          git fetch origin "refs/heads/${target_branch}"
+          feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/${platform}_feature_commits.txt" || true
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git checkout --detach origin/main
+          git checkout --detach "${main_commit}"
           popd > /dev/null
           collect_perf base
 
           pushd "$subproject_dir" > /dev/null
-          git switch -C ci-merge-check origin/main
-          if ! git merge --no-commit --no-ff "origin/${target_branch}"; then
+          git switch -C ci-merge-check "${main_commit}"
+          if ! git merge --no-commit --no-ff "${feature_commit}"; then
             printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
             git merge --abort || true
             popd > /dev/null
