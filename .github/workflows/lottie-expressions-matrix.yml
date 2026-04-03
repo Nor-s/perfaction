@@ -242,23 +242,97 @@ jobs:
       - name: Write Lottie summary
         shell: bash
         run: |
-          echo "## LottieExpressions Log Summary" >> "$GITHUB_STEP_SUMMARY"
-          echo "" >> "$GITHUB_STEP_SUMMARY"
-          shopt -s nullglob
-          logs=(all-logs/*/*.log)
-          if [ ${#logs[@]} -eq 0 ]; then
-            echo "No log artifacts were collected." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
+          python - <<'PY'
+          import os
+          import re
+          from pathlib import Path
 
-          IFS=$'\n' sorted_logs=($(printf '%s\n' "${logs[@]}" | sort))
-          unset IFS
+          summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
+          logs = sorted(Path("all-logs").glob("*/*.log"))
 
-          for log in "${sorted_logs[@]}"; do
-            echo "### $(basename "$log")" >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-            echo '```text' >> "$GITHUB_STEP_SUMMARY"
-            cat "$log" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            echo "" >> "$GITHUB_STEP_SUMMARY"
-          done
+          if not logs:
+              summary_path.write_text("## LottieExpressions Summary\n\nNo log artifacts were collected.\n", encoding="utf-8")
+              raise SystemExit(0)
+
+          platform_labels = {
+              "macos": "Mac",
+              "ubuntu": "Ubuntu",
+              "windows-msvc": "Windows MSVC",
+              "windows-msys2": "Windows MSYS2",
+          }
+
+          fps_by_key = {}
+          fps_pattern = re.compile(r"\[\s*\d+\]:\s*([0-9.]+)\s*/\s*([0-9.]+)\s+fps")
+
+          for log in logs:
+              name = log.name.removesuffix(".log")
+              parts = name.split("_")
+              if len(parts) != 5:
+                  continue
+              platform, subproject, thread_flag, engine, sw_value = parts
+              if engine != "sw":
+                  continue
+
+              lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
+              avg_fps = None
+              for line in reversed(lines):
+                  match = fps_pattern.search(line)
+                  if match:
+                      avg_fps = float(match.group(2))
+                      break
+
+              if avg_fps is None:
+                  continue
+
+              fps_by_key[(platform, subproject, thread_flag, sw_value)] = avg_fps
+
+          def format_delta(base, target):
+              pct = ((target / base) - 1.0) * 100.0
+              sign = "+" if pct > 0 else ""
+              return f"{sign}{pct:.2f}% ({base:.2f} -> {target:.2f} fps)"
+
+          def comparison_line(label, base_key, target_key):
+              base = fps_by_key.get(base_key)
+              target = fps_by_key.get(target_key)
+              if base is None or target is None:
+                  return f"{label} -> n/a"
+              return f"{label} -> {format_delta(base, target)}"
+
+          platforms = [p for p in platform_labels if any(key[0] == p for key in fps_by_key)]
+          lines = ["## LottieExpressions Summary", ""]
+
+          for index, platform in enumerate(platforms):
+              lines.append(platform_labels[platform])
+              lines.append("1. thread option enabled")
+              lines.append("")
+              lines.append(
+                  comparison_line(
+                      "main + 0 thread vs feature(nors) + 4 threads",
+                      (platform, "thorvg-main", "true", "0"),
+                      (platform, "thorvg-nors", "true", "4"),
+                  )
+              )
+              lines.append(
+                  comparison_line(
+                      "main + 0 thread vs feature(nors) + 0 threads",
+                      (platform, "thorvg-main", "true", "0"),
+                      (platform, "thorvg-nors", "true", "0"),
+                  )
+              )
+              lines.append("")
+              lines.append("2. thread option disabled")
+              lines.append("")
+              lines.append(
+                  comparison_line(
+                      "main + 0 thread vs feature(nors) + 0 threads",
+                      (platform, "thorvg-main", "false", "0"),
+                      (platform, "thorvg-nors", "false", "0"),
+                  )
+              )
+              if index != len(platforms) - 1:
+                  lines.append("")
+                  lines.append("---")
+                  lines.append("")
+
+          summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+          PY
