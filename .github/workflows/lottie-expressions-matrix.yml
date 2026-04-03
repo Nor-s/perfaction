@@ -80,8 +80,10 @@ jobs:
         shell: bash
         run: |
           brew update
-          brew install meson ninja sdl2
-          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix sdl2)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+          brew install meson ninja sdl2 libomp
+          echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix sdl2)/lib/pkgconfig:$(brew --prefix libomp)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
+          echo "CPPFLAGS=-I$(brew --prefix libomp)/include${CPPFLAGS:+ $CPPFLAGS}" >> "$GITHUB_ENV"
+          echo "LDFLAGS=-L$(brew --prefix libomp)/lib -Wl,-rpath,$(brew --prefix libomp)/lib${LDFLAGS:+ $LDFLAGS}" >> "$GITHUB_ENV"
 
       - name: Install Packages (Windows MSVC)
         if: matrix.platform == 'windows-msvc'
@@ -96,6 +98,7 @@ jobs:
           & "$vcpkgRoot\vcpkg.exe" install sdl2:x64-windows
           "PKG_CONFIG_PATH=$vcpkgRoot\installed\x64-windows\lib\pkgconfig;$vcpkgRoot\installed\x64-windows\share\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CMAKE_PREFIX_PATH=$vcpkgRoot\installed\x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          "$vcpkgRoot\installed\x64-windows\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
       - name: Configure and Build (POSIX)
         if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
