@@ -85,12 +85,12 @@ source_file = [
 ]
 
 thorvg_inc = thorvg_proj.get_variable('thorvg_inc')
-thorvg_lottie_inc = include_directories(join_paths('..', 'subprojects', 'thorvg', 'src', 'loaders', 'lottie'))
-thorvg_capi_inc = include_directories(join_paths('..', 'subprojects', 'thorvg', 'src', 'bindings', 'capi'))
+thorvg_lottie_inc = include_directories(join_paths('..', 'subprojects', thorvg_subproject, 'src', 'loaders', 'lottie'))
+thorvg_capi_inc = include_directories(join_paths('..', 'subprojects', thorvg_subproject, 'src', 'bindings', 'capi'))
 extra_inc = [thorvg_inc, thorvg_lottie_inc, thorvg_capi_inc]
 
 # Lottie Examples
-if fs.is_file(join_paths(meson.current_source_dir(), '..', 'subprojects', 'thorvg', 'src', 'loaders', 'lottie', 'thorvg_lottie.h'))
+if fs.is_file(join_paths(meson.current_source_dir(), '..', 'subprojects', thorvg_subproject, 'src', 'loaders', 'lottie', 'thorvg_lottie.h'))
     source_file += [
         'Lottie.cpp',
         'LottieExpressions.cpp',
@@ -105,7 +105,7 @@ else
 endif
 
 # CAPI Examples
-if fs.is_file(join_paths(meson.current_source_dir(), '..', 'subprojects', 'thorvg', 'src', 'bindings', 'capi', 'thorvg_capi.h'))
+if fs.is_file(join_paths(meson.current_source_dir(), '..', 'subprojects', thorvg_subproject, 'src', 'bindings', 'capi', 'thorvg_capi.h'))
     source_file += ['Capi.cpp']
     message('ThorVG CAPI found. Enabled Capi examples.')
 else
