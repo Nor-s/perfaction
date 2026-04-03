@@ -94,8 +94,20 @@ jobs:
           choco install pkgconfiglite -y
           $vcpkgRoot = Join-Path $env:RUNNER_TEMP 'vcpkg'
           git clone https://github.com/microsoft/vcpkg.git $vcpkgRoot
+          $env:VCPKG_ROOT = $vcpkgRoot
           & "$vcpkgRoot\bootstrap-vcpkg.bat" -disableMetrics
-          & "$vcpkgRoot\vcpkg.exe" install sdl2:x64-windows
+          $maxAttempts = 3
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            & "$vcpkgRoot\vcpkg.exe" --vcpkg-root "$vcpkgRoot" install sdl2:x64-windows
+            if ($LASTEXITCODE -eq 0) {
+              break
+            }
+            if ($attempt -eq $maxAttempts) {
+              exit $LASTEXITCODE
+            }
+            Write-Host "vcpkg install failed on attempt $attempt/$maxAttempts. Retrying after backoff..."
+            Start-Sleep -Seconds (15 * $attempt)
+          }
           "PKG_CONFIG_PATH=$vcpkgRoot\installed\x64-windows\lib\pkgconfig;$vcpkgRoot\installed\x64-windows\share\pkgconfig" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "CMAKE_PREFIX_PATH=$vcpkgRoot\installed\x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "$vcpkgRoot\installed\x64-windows\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
