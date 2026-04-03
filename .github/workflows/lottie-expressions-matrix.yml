@@ -14,22 +14,11 @@ permissions:
 
 jobs:
   build:
-    name: ${{ matrix.platform }} / ${{ matrix.thorvg_subproject }} / threads=${{ matrix.threads }}
+    name: ${{ matrix.platform }}
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
       matrix:
-        platform:
-          - ubuntu
-          - macos
-          - windows-msvc
-          - windows-msys2
-        thorvg_subproject:
-          - thorvg-main
-          - thorvg-nors
-        threads:
-          - true
-          - false
         include:
           - platform: ubuntu
             runs_on: ubuntu-latest
@@ -113,27 +102,6 @@ jobs:
           "CMAKE_PREFIX_PATH=$vcpkgRoot\installed\x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "$vcpkgRoot\installed\x64-windows\bin" | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
 
-      - name: Configure and Build (POSIX)
-        if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
-        shell: bash
-        run: |
-          meson setup build -Dthorvg_subproject=${{ matrix.thorvg_subproject }} -Dthreads=${{ matrix.threads }}
-          meson compile -C build
-
-      - name: Configure and Build (Windows MSVC)
-        if: matrix.platform == 'windows-msvc'
-        shell: powershell
-        run: |
-          meson setup build "-Dthorvg_subproject=${{ matrix.thorvg_subproject }}" "-Dthreads=${{ matrix.threads }}"
-          meson compile -C build
-
-      - name: Configure and Build (Windows MSYS2)
-        if: matrix.platform == 'windows-msys2'
-        shell: msys2 {0}
-        run: |
-          meson setup build -Dthorvg_subproject=${{ matrix.thorvg_subproject }} -Dthreads=${{ matrix.threads }}
-          meson compile -C build
-
       - name: Prepare report directory (POSIX)
         if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
         shell: bash
@@ -152,77 +120,96 @@ jobs:
         run: |
           mkdir -p ci-report
 
-      - name: Run LottieExpressions sw 0 (POSIX)
+      - name: Build and Run Variants (POSIX)
         if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
         shell: bash
         run: |
-          raw_log="ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.tmp"
-          final_log="ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.log"
-          ./build/src/LottieExpressions sw 0 > "$raw_log" 2>&1
-          status=$?
-          tail -n 30 "$raw_log" > "$final_log"
-          exit $status
+          run_case() {
+            subproject="$1"
+            threads="$2"
+            sw="$3"
+            build_dir="build-${subproject}-${threads}"
+            raw_log="ci-report/raw_${{ matrix.platform }}_${subproject}_${threads}_sw_${sw}.tmp"
+            final_log="ci-report/${{ matrix.platform }}_${subproject}_${threads}_sw_${sw}.log"
 
-      - name: Run LottieExpressions sw 4 (POSIX, thorvg-nors threaded)
-        if: (matrix.platform == 'ubuntu' || matrix.platform == 'macos') && matrix.thorvg_subproject == 'thorvg-nors' && matrix.threads == true
-        shell: bash
-        run: |
-          raw_log="ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.tmp"
-          final_log="ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.log"
-          ./build/src/LottieExpressions sw 4 > "$raw_log" 2>&1
-          status=$?
-          tail -n 30 "$raw_log" > "$final_log"
-          exit $status
+            meson setup "$build_dir" -Dthorvg_subproject="$subproject" -Dthreads="$threads"
+            meson compile -C "$build_dir"
+            "./${build_dir}/src/LottieExpressions" sw "$sw" > "$raw_log" 2>&1
+            status=$?
+            tail -n 30 "$raw_log" > "$final_log"
+            return $status
+          }
 
-      - name: Run LottieExpressions sw 0 (Windows MSVC)
+          run_case thorvg-main true 0
+          run_case thorvg-main false 0
+          run_case thorvg-nors false 0
+          run_case thorvg-nors true 0
+          run_case thorvg-nors true 4
+
+      - name: Build and Run Variants (Windows MSVC)
         if: matrix.platform == 'windows-msvc'
         shell: powershell
         run: |
-          $rawLog = "ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.tmp"
-          $finalLog = "ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.log"
-          & .\build\src\LottieExpressions.exe sw 0 *>&1 | Tee-Object -FilePath $rawLog
-          $status = $LASTEXITCODE
-          Get-Content $rawLog -Tail 30 | Set-Content $finalLog
-          exit $status
+          function Invoke-Case {
+            param(
+              [string]$Subproject,
+              [string]$Threads,
+              [string]$Sw
+            )
 
-      - name: Run LottieExpressions sw 4 (Windows MSVC, thorvg-nors threaded)
-        if: matrix.platform == 'windows-msvc' && matrix.thorvg_subproject == 'thorvg-nors' && matrix.threads == true
-        shell: powershell
-        run: |
-          $rawLog = "ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.tmp"
-          $finalLog = "ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.log"
-          & .\build\src\LottieExpressions.exe sw 4 *>&1 | Tee-Object -FilePath $rawLog
-          $status = $LASTEXITCODE
-          Get-Content $rawLog -Tail 30 | Set-Content $finalLog
-          exit $status
+            $buildDir = "build-$Subproject-$Threads"
+            $rawLog = "ci-report/raw_${{ matrix.platform }}_${Subproject}_${Threads}_sw_${Sw}.tmp"
+            $finalLog = "ci-report/${{ matrix.platform }}_${Subproject}_${Threads}_sw_${Sw}.log"
 
-      - name: Run LottieExpressions sw 0 (Windows MSYS2)
+            meson setup $buildDir "-Dthorvg_subproject=$Subproject" "-Dthreads=$Threads"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            meson compile -C $buildDir
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+            & ".\$buildDir\src\LottieExpressions.exe" sw $Sw *>&1 | Tee-Object -FilePath $rawLog
+            $status = $LASTEXITCODE
+            Get-Content $rawLog -Tail 30 | Set-Content $finalLog
+            if ($status -ne 0) { exit $status }
+          }
+
+          Invoke-Case -Subproject thorvg-main -Threads true -Sw 0
+          Invoke-Case -Subproject thorvg-main -Threads false -Sw 0
+          Invoke-Case -Subproject thorvg-nors -Threads false -Sw 0
+          Invoke-Case -Subproject thorvg-nors -Threads true -Sw 0
+          Invoke-Case -Subproject thorvg-nors -Threads true -Sw 4
+
+      - name: Build and Run Variants (Windows MSYS2)
         if: matrix.platform == 'windows-msys2'
         shell: msys2 {0}
         run: |
-          raw_log="ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.tmp"
-          final_log="ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_0.log"
-          ./build/src/LottieExpressions.exe sw 0 > "$raw_log" 2>&1
-          status=$?
-          tail -n 30 "$raw_log" > "$final_log"
-          exit $status
+          run_case() {
+            subproject="$1"
+            threads="$2"
+            sw="$3"
+            build_dir="build-${subproject}-${threads}"
+            raw_log="ci-report/raw_${{ matrix.platform }}_${subproject}_${threads}_sw_${sw}.tmp"
+            final_log="ci-report/${{ matrix.platform }}_${subproject}_${threads}_sw_${sw}.log"
 
-      - name: Run LottieExpressions sw 4 (Windows MSYS2, thorvg-nors threaded)
-        if: matrix.platform == 'windows-msys2' && matrix.thorvg_subproject == 'thorvg-nors' && matrix.threads == true
-        shell: msys2 {0}
-        run: |
-          raw_log="ci-report/raw_${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.tmp"
-          final_log="ci-report/${{ matrix.platform }}_${{ matrix.thorvg_subproject }}_${{ matrix.threads }}_sw_4.log"
-          ./build/src/LottieExpressions.exe sw 4 > "$raw_log" 2>&1
-          status=$?
-          tail -n 30 "$raw_log" > "$final_log"
-          exit $status
+            meson setup "$build_dir" -Dthorvg_subproject="$subproject" -Dthreads="$threads"
+            meson compile -C "$build_dir"
+            "./${build_dir}/src/LottieExpressions.exe" sw "$sw" > "$raw_log" 2>&1
+            status=$?
+            tail -n 30 "$raw_log" > "$final_log"
+            return $status
+          }
+
+          run_case thorvg-main true 0
+          run_case thorvg-main false 0
+          run_case thorvg-nors false 0
+          run_case thorvg-nors true 0
+          run_case thorvg-nors true 4
 
       - name: Upload Lottie logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: lottie-logs-${{ matrix.platform }}-${{ matrix.thorvg_subproject }}-${{ matrix.threads }}
+          name: lottie-logs-${{ matrix.platform }}
           path: ci-report/*.log
           if-no-files-found: warn
 
