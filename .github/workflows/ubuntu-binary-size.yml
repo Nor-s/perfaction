@@ -49,6 +49,14 @@ jobs:
         shell: bash
         run: |
           repo_root="$PWD"
+          compiler_path="$(command -v c++)"
+          compiler_version="$(c++ --version | head -n 1)"
+
+          {
+            printf 'compiler\t%s\n' "c++"
+            printf 'compiler_path\t%s\n' "$compiler_path"
+            printf 'compiler_version\t%s\n' "$compiler_version"
+          } > "${repo_root}/ci-report/compiler_metadata.tsv"
 
           collect_size() {
             subproject="$1"
@@ -71,9 +79,9 @@ jobs:
               -Ddefault_library=shared
             meson compile -C "$build_dir"
 
-            lib_path="$(find "$build_dir/src" -maxdepth 1 -type f -name 'libthorvg-1.so*' | sort | head -n 1)"
-            if [ -z "$lib_path" ]; then
-              echo "Failed to locate shared lib in $build_dir/src" >&2
+            lib_path="$build_dir/src/libthorvg-1.so.1.0.0"
+            if [ ! -f "$lib_path" ]; then
+              echo "Failed to locate shared lib: $lib_path" >&2
               popd > /dev/null
               exit 1
             fi
@@ -129,10 +137,19 @@ jobs:
 
           summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
           size_tsv_files = sorted(Path("all-size").glob("*/*.tsv"))
+          metadata_path = Path("all-size/ubuntu-binary-size/compiler_metadata.tsv")
 
           if not size_tsv_files:
               summary_path.write_text("## Ubuntu Binary Size\n\nNo size artifacts were collected.\n", encoding="utf-8")
               raise SystemExit(0)
+
+          compiler_meta = {}
+          if metadata_path.exists():
+              for line in metadata_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                  if not line.strip():
+                      continue
+                  key, value = line.split("\t", 1)
+                  compiler_meta[key] = value
 
           size_by_key = {}
           for size_tsv in size_tsv_files:
@@ -160,6 +177,11 @@ jobs:
 
           lines = [
               "## Ubuntu Binary Size",
+              "",
+              "- Shared object: `libthorvg-1.so.1.0.0`",
+              f"- Compiler: `{compiler_meta.get('compiler', 'n/a')}`",
+              f"- Compiler path: `{compiler_meta.get('compiler_path', 'n/a')}`",
+              f"- Compiler version: `{compiler_meta.get('compiler_version', 'n/a')}`",
               "",
               "| Comparison | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
               "|---|---:|---:|---:|---:|---:|---:|---:|",

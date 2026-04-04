@@ -175,9 +175,9 @@ jobs:
             CC="$CC_NAME" CXX="$CXX_NAME" meson setup --wipe "$build_dir" "${meson_args[@]}"
             CC="$CC_NAME" CXX="$CXX_NAME" meson compile -C "$build_dir"
 
-            lib_path="$(find "$build_dir/src" -maxdepth 1 -type f -name 'libthorvg-1.so*' | sort | head -n 1)"
-            if [ -z "$lib_path" ]; then
-              echo "Failed to locate shared lib in $build_dir/src" >&2
+            lib_path="$build_dir/src/libthorvg-1.so.1.0.0"
+            if [ ! -f "$lib_path" ]; then
+              echo "Failed to locate shared lib: $lib_path" >&2
               exit 1
             fi
 
@@ -197,6 +197,8 @@ jobs:
             printf 'branch\t%s\n' "$TARGET_BRANCH"
             printf 'compiler\t%s\n' "$COMPILER"
             printf 'target_arch\t%s\n' "$TARGET_ARCH"
+            printf 'compiler_path\t%s\n' "$(command -v "$CXX_NAME")"
+            printf 'compiler_version\t%s\n' "$("$CXX_NAME" --version | head -n 1)"
           } > "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
 
           pushd "$subproject_dir" > /dev/null
@@ -311,6 +313,8 @@ jobs:
           lines = [
               f"## Binary Size (main vs {branch_name})",
               "",
+              "- Shared object: `libthorvg-1.so.1.0.0`",
+              "",
           ]
 
           lines.append("### Added Commits")
@@ -324,14 +328,16 @@ jobs:
           lines.append("")
 
           lines.extend([
-              "| Runner | Compiler | Target | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
-              "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
+              "| Runner | Compiler | Compiler Path | Compiler Version | Target | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
+              "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
           ])
 
           all_keys = sorted(set(status_by_key) | set(size_by_key))
           for key in all_keys:
               status = status_by_key.get(key, {})
               compiler = status.get("compiler", "n/a")
+              compiler_path = status.get("compiler_path", "n/a")
+              compiler_version = status.get("compiler_version", "n/a")
               target_arch = status.get("target_arch", "n/a")
               run_status = status.get("status", "unknown")
               runner = "ubuntu-24.04-arm" if "arm64" in key else "ubuntu-24.04"
@@ -340,13 +346,13 @@ jobs:
               target = size_by_key.get(key, {}).get("merged")
               if run_status != "merged" or base is None or target is None:
                   lines.append(
-                      f"| {runner} | {compiler} | {target_arch} | "
+                      f"| {runner} | {compiler} | {compiler_path} | {compiler_version} | {target_arch} | "
                       "n/a | n/a | n/a | n/a | n/a | n/a | n/a |"
                   )
                   continue
 
               lines.append(
-                  f"| {runner} | {compiler} | {target_arch} | "
+                  f"| {runner} | {compiler} | {compiler_path} | {compiler_version} | {target_arch} | "
                   f"{base['text']} | {base['data']} | {base['total']} | "
                   f"{target['text']} | {target['data']} | {target['total']} | "
                   f"{format_size_delta(base['total'], target['total'])} |"
