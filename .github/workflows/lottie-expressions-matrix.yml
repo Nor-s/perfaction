@@ -1,5 +1,5 @@
 name: LottieExpressions Matrix
-run-name: LottieExpressions Matrix (${{ inputs.platform }})
+run-name: Matrix (${{ inputs.platform }}, tick=${{ inputs.tick_count }})
 
 on:
   workflow_dispatch:

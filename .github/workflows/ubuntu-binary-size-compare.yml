@@ -1,5 +1,5 @@
 name: Ubuntu Binary Size Compare
-run-name: Ubuntu Binary Size Compare (main vs ${{ inputs.branch }})
+run-name: Size Compare (main vs ${{ inputs.branch }})
 
 on:
   workflow_dispatch:

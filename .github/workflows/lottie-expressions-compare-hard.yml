@@ -1,5 +1,5 @@
-name: LottieExpressions Compare
-run-name: Compare (main vs ${{ inputs.branch }}) (tick=${{ inputs.tick_count }})
+name: LottieExpressions Compare Hard
+run-name: Hard Compare (main vs ${{ inputs.branch }}) (tick=${{ inputs.tick_count }}, loops=${{ inputs.loop_count }})
 
 on:
   workflow_dispatch:
@@ -9,9 +9,14 @@ on:
         required: true
         type: string
       tick_count:
-        description: Tick count for LottieExpressions exit
+        description: Tick count for measured runs
         required: true
         default: '4000'
+        type: string
+      loop_count:
+        description: Number of measured loops (1-10)
+        required: true
+        default: '3'
         type: string
 
 permissions:
@@ -196,7 +201,7 @@ jobs:
         run: |
           mkdir -p ci-report
 
-      - name: Compare LottieExpressions (POSIX)
+      - name: Compare LottieExpressions Hard (POSIX)
         if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
         shell: bash
         run: |
@@ -204,40 +209,54 @@ jobs:
           target_branch="${{ github.event.inputs.branch }}"
           subproject_dir="subprojects/thorvg-main"
           platform="${{ matrix.platform }}"
+          tick_count="${{ github.event.inputs.tick_count }}"
+          loop_count="${{ github.event.inputs.loop_count }}"
 
-          collect_perf() {
+          if ! [[ "$loop_count" =~ ^[0-9]+$ ]] || [ "$loop_count" -lt 1 ] || [ "$loop_count" -gt 10 ]; then
+            echo "loop_count must be an integer between 1 and 10" >&2
+            exit 1
+          fi
+
+          parse_fps() {
+            log_path="$1"
+            sed -En 's/.*: *[0-9.]+ \/ ([0-9.]+) fps/\1/p' "$log_path" | tail -n 1
+          }
+
+          build_state() {
             state="$1"
             build_dir="build-${state}"
-            raw_log="${repo_root}/ci-report/raw_${platform}_${state}_sw_0.tmp"
-            final_log="${repo_root}/ci-report/${platform}_${state}_sw_0.log"
-            metrics_file="${repo_root}/ci-report/${platform}_${state}_metrics.txt"
-
             meson setup --wipe "$build_dir" \
               -Dbuildtype=release \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
               -Dthreads=true
             meson compile -C "$build_dir"
+          }
 
-            if [ "$platform" = "ubuntu" ]; then
-              /usr/bin/time -v -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw 0 "${{ inputs.tick_count }}" > "$raw_log" 2>&1
-              status=$?
-              python3 -c "import re, sys, pathlib; state=sys.argv[1]; metrics_path=pathlib.Path(sys.argv[2]); out_path=pathlib.Path(sys.argv[3]); text=metrics_path.read_text(encoding='utf-8', errors='replace'); patterns={'rss_kb': r'Maximum resident set size \\(kbytes\\):\\s*(\\d+)', 'user_sec': r'User time \\(seconds\\):\\s*([0-9.]+)', 'sys_sec': r'System time \\(seconds\\):\\s*([0-9.]+)', 'elapsed': r'Elapsed \\(wall clock\\) time \\(h:mm:ss or m:ss\\):\\s*([0-9:.]+)', 'vol_cs': r'Voluntary context switches:\\s*(\\d+)', 'invol_cs': r'Involuntary context switches:\\s*(\\d+)'}; extract=lambda key: (re.search(patterns[key], text).group(1) if re.search(patterns[key], text) else ''); values=[state, extract('rss_kb'), extract('user_sec'), extract('sys_sec'), extract('elapsed'), extract('vol_cs'), extract('invol_cs')]; out_path.open('a', encoding='utf-8').write('\\t'.join(values)+'\\n')" "$state" "$metrics_file" "${repo_root}/ci-report/${platform}_runtime_metrics.tsv"
-              python3 -c "import re, sys, pathlib; state=sys.argv[1]; metrics_path=pathlib.Path(sys.argv[2]); out_path=pathlib.Path(sys.argv[3]); text=metrics_path.read_text(encoding='utf-8', errors='replace'); m=re.search(r'Elapsed \\(wall clock\\) time \\(h:mm:ss or m:ss\\):\\s*([0-9:.]+)', text); elapsed=m.group(1) if m else 'n/a'; out_path.open('a', encoding='utf-8').write(f'{state}\\t{elapsed}\\n')" "$state" "$metrics_file" "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
-            else
-              /usr/bin/time -p -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw 0 "${{ inputs.tick_count }}" > "$raw_log" 2>&1
-              status=$?
-              elapsed="$(awk '/^real / {print $2 "s"}' "$metrics_file" | head -n 1)"
-              printf '%s\t%s\n' "$state" "${elapsed:-n/a}" >> "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
-            fi
+          run_once() {
+            state="$1"
+            iteration="$2"
+            run_type="$3"
+            ticks="$4"
+            build_dir="build-${state}"
+            raw_log="${repo_root}/ci-report/raw_${platform}_${state}_${run_type}_${iteration}.tmp"
+            final_log="${repo_root}/ci-report/${platform}_${state}_${run_type}_${iteration}.log"
+            timing_file="${repo_root}/ci-report/${platform}_${state}_${run_type}_${iteration}.time"
 
+            /usr/bin/time -p -o "$timing_file" "./${build_dir}/src/LottieExpressions" sw 0 "$ticks" > "$raw_log" 2>&1
+            status=$?
             tail -n 30 "$raw_log" > "$final_log"
-            return $status
+            [ "$status" -eq 0 ] || return "$status"
+
+            if [ "$run_type" = "measure" ]; then
+              fps="$(parse_fps "$raw_log")"
+              elapsed="$(awk '/^real / {print $2}' "$timing_file" | head -n 1)"
+              printf '%s\t%s\t%s\t%s\n' "$state" "$iteration" "$fps" "${elapsed:-0}" >> "${repo_root}/ci-report/${platform}_measurements.tsv"
+            fi
           }
 
           printf 'branch\t%s\n' "$target_branch" > "${repo_root}/ci-report/${platform}_merge_status.tsv"
-          : > "${repo_root}/ci-report/${platform}_runtime_metrics.tsv"
-          : > "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
+          : > "${repo_root}/ci-report/${platform}_measurements.tsv"
 
           pushd "$subproject_dir" > /dev/null
           git fetch origin "refs/heads/main"
@@ -245,13 +264,11 @@ jobs:
           git fetch origin "refs/heads/${target_branch}"
           feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
           git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/${platform}_feature_commits.txt" || true
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git checkout --detach "${main_commit}"
           popd > /dev/null
-          collect_perf base
+          build_state base
 
           pushd "$subproject_dir" > /dev/null
           git switch -C ci-merge-check "${main_commit}"
@@ -263,10 +280,17 @@ jobs:
           fi
           printf 'status\tmerged\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
           popd > /dev/null
+          build_state merged
 
-          collect_perf merged
+          run_once base 0 warmup 100
+          run_once merged 0 warmup 100
 
-      - name: Compare LottieExpressions (Windows MSVC)
+          for iteration in $(seq 1 "$loop_count"); do
+            run_once base "$iteration" measure "$tick_count"
+            run_once merged "$iteration" measure "$tick_count"
+          done
+
+      - name: Compare LottieExpressions Hard (Windows MSVC)
         if: matrix.platform == 'windows-msvc'
         shell: powershell
         run: |
@@ -274,30 +298,60 @@ jobs:
           $targetBranch = "${{ github.event.inputs.branch }}"
           $subprojectDir = "subprojects/thorvg-main"
           $platform = "${{ matrix.platform }}"
+          $tickCount = [int]"${{ github.event.inputs.tick_count }}"
+          $loopCount = [int]"${{ github.event.inputs.loop_count }}"
 
-          function Invoke-Perf {
+          if ($loopCount -lt 1 -or $loopCount -gt 10) {
+            throw "loop_count must be between 1 and 10"
+          }
+
+          function Build-State {
             param([string]$State)
-
             $buildDir = "build-$State"
-            $rawLog = "ci-report/raw_${platform}_${State}_sw_0.tmp"
-            $finalLog = "ci-report/${platform}_${State}_sw_0.log"
-
             meson setup --wipe $buildDir "-Dbuildtype=release" "-Doptimization=s" "-Dthorvg_subproject=thorvg-main" "-Dthreads=true"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             meson compile -C $buildDir
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+
+          function Run-Once {
+            param(
+              [string]$State,
+              [int]$Iteration,
+              [string]$RunType,
+              [int]$Ticks
+            )
+
+            $buildDir = "build-$State"
+            $rawLog = "ci-report/raw_${platform}_${State}_${RunType}_${Iteration}.tmp"
+            $finalLog = "ci-report/${platform}_${State}_${RunType}_${Iteration}.log"
+
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            & ".\$buildDir\src\LottieExpressions.exe" sw 0 "${{ inputs.tick_count }}" *>&1 | Tee-Object -FilePath $rawLog
+            & ".\$buildDir\src\LottieExpressions.exe" sw 0 "$Ticks" *>&1 | Tee-Object -FilePath $rawLog
             $stopwatch.Stop()
             $status = $LASTEXITCODE
-            $elapsed = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:F3}s", $stopwatch.Elapsed.TotalSeconds)
-            "$State`t$elapsed" | Add-Content "ci-report/${platform}_elapsed_metrics.tsv"
             Get-Content $rawLog -Tail 30 | Set-Content $finalLog
             if ($status -ne 0) { exit $status }
+
+            if ($RunType -eq "measure") {
+              $fps = $null
+              $lines = Get-Content $rawLog
+              [array]::Reverse($lines)
+              foreach ($line in $lines) {
+                if ($line -match ':\s*[0-9.]+\s*/\s*([0-9.]+)\s+fps') {
+                  $fps = $matches[1]
+                  break
+                }
+              }
+              if (-not $fps) { throw "Failed to parse fps from $rawLog" }
+              $elapsed = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:F6}", $stopwatch.Elapsed.TotalSeconds)
+              "$State`t$Iteration`t$fps`t$elapsed" | Add-Content "ci-report/${platform}_measurements.tsv"
+            }
           }
 
           "branch`t$targetBranch" | Set-Content "ci-report/${platform}_merge_status.tsv"
-          "" | Set-Content "ci-report/${platform}_elapsed_metrics.tsv"
+          "" | Set-Content "ci-report/${platform}_measurements.tsv"
+
           Set-Location $subprojectDir
           git fetch origin "refs/heads/main"
           $mainCommit = (git rev-parse "FETCH_HEAD^{commit}").Trim()
@@ -308,7 +362,7 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout --detach $mainCommit
           Set-Location $repoRoot
-          Invoke-Perf -State base
+          Build-State -State base
 
           Set-Location $subprojectDir
           git checkout -B ci-merge-check $mainCommit
@@ -320,9 +374,17 @@ jobs:
           }
           "status`tmerged" | Add-Content "$repoRoot/ci-report/${platform}_merge_status.tsv"
           Set-Location $repoRoot
-          Invoke-Perf -State merged
+          Build-State -State merged
 
-      - name: Compare LottieExpressions (Windows MSYS2)
+          Run-Once -State base -Iteration 0 -RunType warmup -Ticks 100
+          Run-Once -State merged -Iteration 0 -RunType warmup -Ticks 100
+
+          for ($iteration = 1; $iteration -le $loopCount; $iteration++) {
+            Run-Once -State base -Iteration $iteration -RunType measure -Ticks $tickCount
+            Run-Once -State merged -Iteration $iteration -RunType measure -Ticks $tickCount
+          }
+
+      - name: Compare LottieExpressions Hard (Windows MSYS2)
         if: matrix.platform == 'windows-msys2'
         shell: msys2 {0}
         run: |
@@ -330,32 +392,55 @@ jobs:
           target_branch="${{ github.event.inputs.branch }}"
           subproject_dir="subprojects/thorvg-main"
           platform="${{ matrix.platform }}"
+          tick_count="${{ github.event.inputs.tick_count }}"
+          loop_count="${{ github.event.inputs.loop_count }}"
 
-          collect_perf() {
+          if ! [[ "$loop_count" =~ ^[0-9]+$ ]] || [ "$loop_count" -lt 1 ] || [ "$loop_count" -gt 10 ]; then
+            echo "loop_count must be an integer between 1 and 10" >&2
+            exit 1
+          fi
+
+          parse_fps() {
+            log_path="$1"
+            sed -En 's/.*: *[0-9.]+ \/ ([0-9.]+) fps/\1/p' "$log_path" | tail -n 1
+          }
+
+          build_state() {
             state="$1"
             build_dir="build-${state}"
-            raw_log="${repo_root}/ci-report/raw_${platform}_${state}_sw_0.tmp"
-            final_log="${repo_root}/ci-report/${platform}_${state}_sw_0.log"
-
             meson setup --wipe "$build_dir" \
               -Dbuildtype=release \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
               -Dthreads=true
             meson compile -C "$build_dir"
+          }
+
+          run_once() {
+            state="$1"
+            iteration="$2"
+            run_type="$3"
+            ticks="$4"
+            build_dir="build-${state}"
+            raw_log="${repo_root}/ci-report/raw_${platform}_${state}_${run_type}_${iteration}.tmp"
+            final_log="${repo_root}/ci-report/${platform}_${state}_${run_type}_${iteration}.log"
+
             start_ns="$(date +%s%N)"
-            "./${build_dir}/src/LottieExpressions.exe" sw 0 "${{ inputs.tick_count }}" > "$raw_log" 2>&1
+            "./${build_dir}/src/LottieExpressions.exe" sw 0 "$ticks" > "$raw_log" 2>&1
             status=$?
             end_ns="$(date +%s%N)"
-            elapsed="$(awk -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf "%.3fs", (end - start) / 1000000000 }')"
-            printf '%s\t%s\n' "$state" "$elapsed" >> "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
             tail -n 30 "$raw_log" > "$final_log"
-            return $status
+            [ "$status" -eq 0 ] || return "$status"
+
+            if [ "$run_type" = "measure" ]; then
+              fps="$(parse_fps "$raw_log")"
+              elapsed="$(awk -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf "%.6f", (end - start) / 1000000000 }')"
+              printf '%s\t%s\t%s\t%s\n' "$state" "$iteration" "$fps" "$elapsed" >> "${repo_root}/ci-report/${platform}_measurements.tsv"
+            fi
           }
 
           printf 'branch\t%s\n' "$target_branch" > "${repo_root}/ci-report/${platform}_merge_status.tsv"
-          : > "${repo_root}/ci-report/${platform}_runtime_metrics.tsv"
-          : > "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
+          : > "${repo_root}/ci-report/${platform}_measurements.tsv"
 
           pushd "$subproject_dir" > /dev/null
           git fetch origin "refs/heads/main"
@@ -363,13 +448,11 @@ jobs:
           git fetch origin "refs/heads/${target_branch}"
           feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
           git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/${platform}_feature_commits.txt" || true
-
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
           git checkout --detach "${main_commit}"
           popd > /dev/null
-          collect_perf base
+          build_state base
 
           pushd "$subproject_dir" > /dev/null
           git switch -C ci-merge-check "${main_commit}"
@@ -381,22 +464,30 @@ jobs:
           fi
           printf 'status\tmerged\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
           popd > /dev/null
+          build_state merged
 
-          collect_perf merged
+          run_once base 0 warmup 100
+          run_once merged 0 warmup 100
+
+          for iteration in $(seq 1 "$loop_count"); do
+            run_once base "$iteration" measure "$tick_count"
+            run_once merged "$iteration" measure "$tick_count"
+          done
 
       - name: Upload Compare Artifacts
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: lottie-expressions-compare-${{ matrix.platform }}
+          name: lottie-expressions-compare-hard-${{ matrix.platform }}
           path: |
             ci-report/*.log
             ci-report/*.tsv
             ci-report/*.txt
+            ci-report/*.time
           if-no-files-found: warn
 
   report:
-    name: LottieExpressions Report
+    name: LottieExpressions Hard Report
     if: ${{ always() }}
     needs: [build]
     runs-on: ubuntu-latest
@@ -405,7 +496,7 @@ jobs:
         uses: actions/download-artifact@v8
         with:
           path: all-report
-          pattern: lottie-expressions-compare-*
+          pattern: lottie-expressions-compare-hard-*
           merge-multiple: true
 
       - name: Write Compare Summary
@@ -413,14 +504,16 @@ jobs:
         env:
           BRANCH_NAME: ${{ github.event.inputs.branch }}
           TICK_COUNT: ${{ github.event.inputs.tick_count }}
+          LOOP_COUNT: ${{ github.event.inputs.loop_count }}
         run: |
           python - <<'PY'
           import os
-          import re
           from pathlib import Path
 
           summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
           branch_name = os.environ["BRANCH_NAME"]
+          tick_count = os.environ["TICK_COUNT"]
+          loop_count = os.environ["LOOP_COUNT"]
           root = Path("all-report")
 
           platforms = {
@@ -431,7 +524,9 @@ jobs:
           }
 
           lines = [
-              f"## LottieExpressions (main vs {branch_name}) (tickCnt={os.environ['TICK_COUNT']})",
+              f"## LottieExpressions (main vs {branch_name}) (tickCnt={tick_count})",
+              "",
+              f"- Average of `{loop_count}` measured runs after `1` warmup run (`100` ticks)",
               "",
           ]
 
@@ -452,19 +547,17 @@ jobs:
               lines.append("No additional commits.")
           lines.append("")
 
-          fps_pattern = re.compile(r"\[\s*\d+\]:\s*([0-9.]+)\s*/\s*([0-9.]+)\s+fps")
-
           for platform, label in platforms.items():
               status_path = root / f"{platform}_merge_status.tsv"
               status = "no-data"
               if status_path.exists():
-                  status_map = {}
                   for line in status_path.read_text(encoding="utf-8", errors="replace").splitlines():
                       if not line.strip():
                           continue
                       key, value = line.split("\t", 1)
-                      status_map[key] = value
-                  status = status_map.get("status", "unknown")
+                      if key == "status":
+                          status = value
+                          break
 
               lines.append(f"### {label}")
               lines.append("")
@@ -474,45 +567,47 @@ jobs:
                   lines.append("")
                   continue
 
-              fps_by_state = {}
-              for state in ("base", "merged"):
-                  log_path = root / f"{platform}_{state}_sw_0.log"
-                  if not log_path.exists():
-                      continue
-                  avg_fps = None
-                  for line in reversed(log_path.read_text(encoding="utf-8", errors="replace").splitlines()):
-                      match = fps_pattern.search(line)
-                      if match:
-                          avg_fps = float(match.group(2))
-                          break
-                  if avg_fps is not None:
-                      fps_by_state[state] = avg_fps
+              measurements_path = root / f"{platform}_measurements.tsv"
+              if not measurements_path.exists():
+                  lines.append("No measurement data was collected.")
+                  lines.append("")
+                  continue
 
-              elapsed_by_state = {}
-              elapsed_metrics_path = root / f"{platform}_elapsed_metrics.tsv"
-              if elapsed_metrics_path.exists():
-                  for line in elapsed_metrics_path.read_text(encoding="utf-8", errors="replace").splitlines():
-                      if not line.strip():
-                          continue
-                      state, elapsed = line.split("\t", 1)
-                      elapsed_by_state[state] = elapsed or "n/a"
+              values = {"base": {"fps": [], "elapsed": []}, "merged": {"fps": [], "elapsed": []}}
+              for line in measurements_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                  if not line.strip():
+                      continue
+                  state, iteration, fps_value, elapsed_value = line.split("\t")
+                  values.setdefault(state, {"fps": [], "elapsed": []})
+                  values[state]["fps"].append(float(fps_value))
+                  values[state]["elapsed"].append(float(elapsed_value))
+
+              base_fps = values.get("base", {}).get("fps", [])
+              target_fps = values.get("merged", {}).get("fps", [])
+              base_elapsed = values.get("base", {}).get("elapsed", [])
+              target_elapsed = values.get("merged", {}).get("elapsed", [])
 
               lines.extend([
                   "| Comparison | FPS Delta | Base Elapsed | Target Elapsed |",
                   "|---|---:|---:|---:|",
               ])
 
-              base = fps_by_state.get("base")
-              target = fps_by_state.get("merged")
-
-              if base is None or target is None:
-                  lines.append(f"| main vs main+{branch_name} | n/a | {elapsed_by_state.get('base', 'n/a')} | {elapsed_by_state.get('merged', 'n/a')} |")
+              if not base_fps or not target_fps or not base_elapsed or not target_elapsed:
+                  lines.append(f"| main vs main+{branch_name} | n/a | n/a | n/a |")
                   lines.append("")
                   continue
 
-              pct = ((target / base) - 1.0) * 100.0
+              avg_base_fps = sum(base_fps) / len(base_fps)
+              avg_target_fps = sum(target_fps) / len(target_fps)
+              avg_base_elapsed = sum(base_elapsed) / len(base_elapsed)
+              avg_target_elapsed = sum(target_elapsed) / len(target_elapsed)
+
+              pct = ((avg_target_fps / avg_base_fps) - 1.0) * 100.0
               pct_sign = "+" if pct > 0 else ""
-              lines.append(f"| main vs main+{branch_name} | {pct_sign}{pct:.2f}% | {elapsed_by_state.get('base', 'n/a')} | {elapsed_by_state.get('merged', 'n/a')} |")
+              lines.append(
+                  f"| main vs main+{branch_name} | {pct_sign}{pct:.2f}% | "
+                  f"{avg_base_elapsed:.2f}s | {avg_target_elapsed:.2f}s |"
+              )
               lines.append("")
 
           summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")

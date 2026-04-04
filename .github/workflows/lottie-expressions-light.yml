@@ -1,5 +1,5 @@
 name: LottieExpressions Light
-run-name: ${{ github.event_name == 'workflow_dispatch' && format('LottieExpressions Light (tickCnt={0})', inputs.tick_count) || 'LottieExpressions Light' }}
+run-name: ${{ github.event_name == 'workflow_dispatch' && format('Light (tick={0})', inputs.tick_count) || 'Light (tick=4000)' }}
 
 on:
   push:

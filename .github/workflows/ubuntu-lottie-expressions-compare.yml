@@ -1,5 +1,5 @@
 name: Ubuntu LottieExpressions Compare
-run-name: Ubuntu LottieExpressions Compare (main vs ${{ inputs.branch }})
+run-name: Compare (main vs ${{ inputs.branch }}) (tick=${{ inputs.tick_count }})
 
 on:
   workflow_dispatch:
