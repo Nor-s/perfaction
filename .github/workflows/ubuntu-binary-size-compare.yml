@@ -44,7 +44,7 @@ jobs:
             runs_on: ubuntu-24.04
             compiler: clang
             target_arch: x86_64
-            extra_packages: 'clang lld'
+            extra_packages: 'clang lld libomp-dev'
             cc: clang
             cxx: clang++
             c_args: ''
@@ -80,7 +80,7 @@ jobs:
             runs_on: ubuntu-24.04-arm
             compiler: clang
             target_arch: arm64
-            extra_packages: 'clang lld'
+            extra_packages: 'clang lld libomp-dev'
             cc: clang
             cxx: clang++
             c_args: ''
