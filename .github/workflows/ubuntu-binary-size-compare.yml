@@ -207,7 +207,6 @@ jobs:
           main_commit="$(git rev-parse FETCH_HEAD^{commit})"
           git fetch origin "refs/heads/${TARGET_BRANCH}"
           feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
-          git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt" || true
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -215,15 +214,16 @@ jobs:
           git checkout --detach "${main_commit}"
           collect_size base
 
-          git switch -C ci-merge-check "${main_commit}"
-          if ! git merge --no-commit --no-ff "${feature_commit}"; then
-            printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
-            git merge --abort || true
+          git switch -C ci-rebase-check "${feature_commit}"
+          if ! git rebase "${main_commit}"; then
+            printf 'status\trebase-conflict\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
+            git rebase --abort || true
             popd > /dev/null
             exit 1
           fi
 
-          printf 'status\tmerged\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
+          printf 'status\trebased\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
+          git log --oneline --no-merges "${main_commit}..HEAD" > "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt" || true
           collect_size merged
 
           popd > /dev/null
