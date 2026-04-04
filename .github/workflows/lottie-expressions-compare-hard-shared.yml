@@ -371,6 +371,12 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             meson compile -C $buildDir
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            foreach ($dllName in @('thorvg-1.dll', 'libthorvg-1.dll')) {
+              $dllSource = Join-Path $repoRoot "$buildDir\subprojects\thorvg-main\src\$dllName"
+              if (Test-Path $dllSource) {
+                Copy-Item $dllSource (Join-Path $repoRoot "$buildDir\src\$dllName") -Force
+              }
+            }
           }
 
           function Get-RuntimeDllDir {
@@ -407,7 +413,7 @@ jobs:
             "" | Set-Content $rawLog
             $env:PATH = "$runtimeDllDir;$originalPath"
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            & ".\$buildDir\src\LottieExpressions.exe" sw 0 "$Ticks" *>&1 | Tee-Object -FilePath $rawLog -Append
+            & ".\$buildDir\src\LottieExpressions.exe" sw 0 "$Ticks" *> $rawLog
             $stopwatch.Stop()
             $status = $LASTEXITCODE
             $env:PATH = $originalPath
@@ -416,15 +422,15 @@ jobs:
 
             if ($RunType -eq "measure") {
               $fps = $null
-              $lines = Get-Content $rawLog
-              [array]::Reverse($lines)
-              foreach ($line in $lines) {
-                if ($line -match ':\s*[0-9.]+\s*/\s*([0-9.]+)\s+fps') {
-                  $fps = $matches[1]
-                  break
-                }
+              $rawText = Get-Content $rawLog -Raw
+              $matches = [regex]::Matches($rawText, ':\s*[0-9.]+\s*/\s*([0-9.]+)\s+fps')
+              if ($matches.Count -gt 0) {
+                $fps = $matches[$matches.Count - 1].Groups[1].Value
               }
-              if (-not $fps) { throw "Failed to parse fps from $rawLog" }
+              if (-not $fps) {
+                $tail = (Get-Content $rawLog -Tail 20) -join "`n"
+                throw "Failed to parse fps from $rawLog`n$tail"
+              }
               $elapsed = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:F6}", $stopwatch.Elapsed.TotalSeconds)
               "$State`t$Iteration`t$fps`t$elapsed" | Add-Content "ci-report/${platform}_measurements.tsv"
             }
@@ -496,6 +502,11 @@ jobs:
               -Dthorvg_linkage=shared \
               -Dthreads=true
             meson compile -C "$build_dir"
+            for dll_name in thorvg-1.dll libthorvg-1.dll; do
+              if [ -f "${build_dir}/subprojects/thorvg-main/src/${dll_name}" ]; then
+                cp -f "${build_dir}/subprojects/thorvg-main/src/${dll_name}" "${build_dir}/src/${dll_name}"
+              fi
+            done
           }
 
           resolve_runtime_dir() {

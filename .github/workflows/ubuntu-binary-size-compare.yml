@@ -201,6 +201,7 @@ jobs:
             printf 'compiler_version\t%s\n' "$("$CXX_NAME" --version | head -n 1)"
           } > "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
 
+          rebase_ok=true
           pushd "$subproject_dir" > /dev/null
 
           git fetch origin "refs/heads/main"
@@ -215,18 +216,22 @@ jobs:
           collect_size base
 
           git switch -C ci-rebase-check "${feature_commit}"
-          if ! git rebase "${main_commit}"; then
+          if ! git -c advice.mergeConflict=false rebase "${main_commit}"; then
             printf 'status\trebase-conflict\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
+            git diff --name-only --diff-filter=U > "${repo_root}/ci-report/${MATRIX_KEY}_conflicts.txt" || true
             git rebase --abort || true
-            popd > /dev/null
-            exit 1
+            rebase_ok=false
+          else
+            printf 'status\trebased\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
+            git log --oneline --no-merges "${main_commit}..HEAD" > "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt" || true
+            collect_size merged
           fi
 
-          printf 'status\trebased\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
-          git log --oneline --no-merges "${main_commit}..HEAD" > "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt" || true
-          collect_size merged
-
           popd > /dev/null
+
+          if [ "$rebase_ok" != true ] && [ ! -f "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt" ]; then
+            : > "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt"
+          fi
 
       - name: Upload Binary Size Artifacts
         if: always()
@@ -268,6 +273,7 @@ jobs:
           size_tsv_files = sorted(root.glob("*_binary_sizes.tsv"))
           status_files = sorted(root.glob("*_merge_status.tsv"))
           commit_files = sorted(root.glob("*_feature_commits.txt"))
+          conflict_files = sorted(root.glob("*_conflicts.txt"))
 
           if not size_tsv_files and not status_files:
               summary_path.write_text(f"## Binary Size (main vs {branch_name})\n\nNo size artifacts were collected.\n", encoding="utf-8")
@@ -310,6 +316,11 @@ jobs:
               if commit_lines:
                   break
 
+          conflicts_by_key = {}
+          for conflict_file in conflict_files:
+              key = conflict_file.name.removesuffix("_conflicts.txt")
+              conflicts_by_key[key] = [line for line in conflict_file.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+
           lines = [
               f"## Binary Size (main vs {branch_name})",
               "",
@@ -326,6 +337,22 @@ jobs:
           else:
               lines.append("No additional commits.")
           lines.append("")
+
+          if any(conflicts_by_key.values()):
+              lines.append("### Rebase Conflicts")
+              lines.append("")
+              for key in sorted(conflicts_by_key):
+                  entries = conflicts_by_key[key]
+                  if not entries:
+                      continue
+                  status = status_by_key.get(key, {})
+                  compiler = status.get("compiler", "n/a")
+                  target_arch = status.get("target_arch", "n/a")
+                  runner = "ubuntu-24.04-arm" if "arm64" in key else "ubuntu-24.04"
+                  lines.append(f"- `{runner}` / `{compiler}` / `{target_arch}`")
+                  for entry in entries:
+                      lines.append(f"  - `{entry}`")
+              lines.append("")
 
           lines.extend([
               "| Runner | Compiler | Target | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
