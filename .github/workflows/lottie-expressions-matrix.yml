@@ -77,9 +77,28 @@ jobs:
           restore-keys: |
             windows-msvc-vcpkg-binary-${{ runner.os }}-
 
-      - name: Set Up MSVC Developer Command Prompt
+      - name: Load MSVC Build Environment
         if: matrix.platform == 'windows-msvc'
-        uses: ilammy/msvc-dev-cmd@v1
+        shell: powershell
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsInstallPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsInstallPath) {
+            throw 'Visual Studio installation not found.'
+          }
+          $vsDevCmd = Join-Path $vsInstallPath 'Common7\Tools\VsDevCmd.bat'
+          $envDump = cmd /c "`"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && set"
+          foreach ($line in $envDump) {
+            if ($line -notmatch '^([^=][^=]*)=(.*)$') {
+              continue
+            }
+            $name = $matches[1]
+            $value = $matches[2]
+            $delimiter = [guid]::NewGuid().ToString()
+            Add-Content $env:GITHUB_ENV "$name<<$delimiter"
+            Add-Content $env:GITHUB_ENV $value
+            Add-Content $env:GITHUB_ENV $delimiter
+          }
 
       - name: Set Up MSYS2
         if: matrix.platform == 'windows-msys2'

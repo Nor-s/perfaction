@@ -74,9 +74,28 @@ jobs:
           restore-keys: |
             windows-msvc-vcpkg-binary-${{ runner.os }}-
 
-      - name: Set Up MSVC Developer Command Prompt
+      - name: Load MSVC Build Environment
         if: matrix.platform == 'windows-msvc'
-        uses: ilammy/msvc-dev-cmd@v1
+        shell: powershell
+        run: |
+          $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+          $vsInstallPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+          if (-not $vsInstallPath) {
+            throw 'Visual Studio installation not found.'
+          }
+          $vsDevCmd = Join-Path $vsInstallPath 'Common7\Tools\VsDevCmd.bat'
+          $envDump = cmd /c "`"$vsDevCmd`" -arch=x64 -host_arch=x64 >nul && set"
+          foreach ($line in $envDump) {
+            if ($line -notmatch '^([^=][^=]*)=(.*)$') {
+              continue
+            }
+            $name = $matches[1]
+            $value = $matches[2]
+            $delimiter = [guid]::NewGuid().ToString()
+            Add-Content $env:GITHUB_ENV "$name<<$delimiter"
+            Add-Content $env:GITHUB_ENV $value
+            Add-Content $env:GITHUB_ENV $delimiter
+          }
 
       - name: Set Up MSYS2
         if: matrix.platform == 'windows-msys2'
@@ -200,6 +219,42 @@ jobs:
         shell: msys2 {0}
         run: |
           mkdir -p ci-report
+
+      - name: Collect Metadata (POSIX)
+        if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
+        shell: bash
+        run: |
+          os_line="$(uname -srvmo)"
+          compiler_line="$(c++ --version | head -n 1)"
+          {
+            printf 'runner\t%s\n' "${{ matrix.runs_on }}"
+            printf 'os\t%s\n' "$os_line"
+            printf 'compiler\t%s\n' "$compiler_line"
+          } > "ci-report/${{ matrix.platform }}_metadata.tsv"
+
+      - name: Collect Metadata (Windows MSVC)
+        if: matrix.platform == 'windows-msvc'
+        shell: powershell
+        run: |
+          $compilerLine = ((cmd /c "cl 2>&1") | Select-Object -First 1).ToString().Trim()
+          $osLine = [System.Environment]::OSVersion.VersionString
+          @(
+            "runner`t${{ matrix.runs_on }}"
+            "os`t$osLine"
+            "compiler`t$compilerLine"
+          ) | Set-Content "ci-report/${{ matrix.platform }}_metadata.tsv"
+
+      - name: Collect Metadata (Windows MSYS2)
+        if: matrix.platform == 'windows-msys2'
+        shell: msys2 {0}
+        run: |
+          os_line="$(uname -srvmo)"
+          compiler_line="$(g++ --version | head -n 1)"
+          {
+            printf 'runner\t%s\n' "${{ matrix.runs_on }}"
+            printf 'os\t%s\n' "$os_line"
+            printf 'compiler\t%s\n' "$compiler_line"
+          } > "ci-report/${{ matrix.platform }}_metadata.tsv"
 
       - name: Compare LottieExpressions Hard (POSIX)
         if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
@@ -508,6 +563,7 @@ jobs:
         run: |
           python - <<'PY'
           import os
+          import statistics
           from pathlib import Path
 
           summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
@@ -562,6 +618,21 @@ jobs:
               lines.append(f"### {label}")
               lines.append("")
 
+              metadata = {}
+              metadata_path = root / f"{platform}_metadata.tsv"
+              if metadata_path.exists():
+                  for line in metadata_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                      if not line.strip():
+                          continue
+                      key, value = line.split("\t", 1)
+                      metadata[key] = value
+
+              if metadata:
+                  lines.append(f"- Runner: `{metadata.get('runner', 'n/a')}`")
+                  lines.append(f"- OS: `{metadata.get('os', 'n/a')}`")
+                  lines.append(f"- Compiler: `{metadata.get('compiler', 'n/a')}`")
+                  lines.append("")
+
               if status != "merged":
                   lines.append("Comparison was not completed on this platform.")
                   lines.append("")
@@ -588,24 +659,41 @@ jobs:
               target_elapsed = values.get("merged", {}).get("elapsed", [])
 
               lines.extend([
-                  "| Comparison | FPS Delta | Base Elapsed | Target Elapsed |",
-                  "|---|---:|---:|---:|",
+                  "| Comparison | Avg FPS Delta | Median FPS Delta | Min FPS Delta | Max FPS Delta | Base FPS Stddev | Target FPS Stddev | Base Elapsed Avg | Target Elapsed Avg |",
+                  "|---|---:|---:|---:|---:|---:|---:|---:|---:|",
               ])
 
               if not base_fps or not target_fps or not base_elapsed or not target_elapsed:
-                  lines.append(f"| main vs main+{branch_name} | n/a | n/a | n/a |")
+                  lines.append(f"| main vs main+{branch_name} | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
                   lines.append("")
                   continue
 
               avg_base_fps = sum(base_fps) / len(base_fps)
               avg_target_fps = sum(target_fps) / len(target_fps)
+              median_base_fps = statistics.median(base_fps)
+              median_target_fps = statistics.median(target_fps)
+              min_base_fps = min(base_fps)
+              min_target_fps = min(target_fps)
+              max_base_fps = max(base_fps)
+              max_target_fps = max(target_fps)
+              stddev_base_fps = statistics.stdev(base_fps) if len(base_fps) > 1 else 0.0
+              stddev_target_fps = statistics.stdev(target_fps) if len(target_fps) > 1 else 0.0
               avg_base_elapsed = sum(base_elapsed) / len(base_elapsed)
               avg_target_elapsed = sum(target_elapsed) / len(target_elapsed)
 
-              pct = ((avg_target_fps / avg_base_fps) - 1.0) * 100.0
-              pct_sign = "+" if pct > 0 else ""
+              def delta_pct(base_value, target_value):
+                  pct = ((target_value / base_value) - 1.0) * 100.0 if base_value else 0.0
+                  sign = "+" if pct > 0 else ""
+                  return f"{sign}{pct:.2f}%"
+
               lines.append(
-                  f"| main vs main+{branch_name} | {pct_sign}{pct:.2f}% | "
+                  f"| main vs main+{branch_name} | "
+                  f"{delta_pct(avg_base_fps, avg_target_fps)} | "
+                  f"{delta_pct(median_base_fps, median_target_fps)} | "
+                  f"{delta_pct(min_base_fps, min_target_fps)} | "
+                  f"{delta_pct(max_base_fps, max_target_fps)} | "
+                  f"{stddev_base_fps:.2f} fps | "
+                  f"{stddev_target_fps:.2f} fps | "
                   f"{avg_base_elapsed:.2f}s | {avg_target_elapsed:.2f}s |"
               )
               lines.append("")
