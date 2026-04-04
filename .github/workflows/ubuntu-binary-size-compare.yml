@@ -324,8 +324,8 @@ jobs:
           lines.append("")
 
           lines.extend([
-              "| Runner | Compiler | Target | Status | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
-              "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
+              "| Runner | Compiler | Target | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
+              "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
           ])
 
           all_keys = sorted(set(status_by_key) | set(size_by_key))
@@ -340,13 +340,13 @@ jobs:
               target = size_by_key.get(key, {}).get("merged")
               if run_status != "merged" or base is None or target is None:
                   lines.append(
-                      f"| {runner} | {compiler} | {target_arch} | {run_status} | "
+                      f"| {runner} | {compiler} | {target_arch} | "
                       "n/a | n/a | n/a | n/a | n/a | n/a | n/a |"
                   )
                   continue
 
               lines.append(
-                  f"| {runner} | {compiler} | {target_arch} | {run_status} | "
+                  f"| {runner} | {compiler} | {target_arch} | "
                   f"{base['text']} | {base['data']} | {base['total']} | "
                   f"{target['text']} | {target['data']} | {target['total']} | "
                   f"{format_size_delta(base['total'], target['total'])} |"
