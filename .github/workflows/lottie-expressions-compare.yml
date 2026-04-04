@@ -470,8 +470,6 @@ jobs:
 
               lines.append(f"### {label}")
               lines.append("")
-              lines.append(f"- Status: `{status}`")
-              lines.append("")
 
               if status != "merged":
                   lines.append("Comparison was not completed on this platform.")

@@ -169,7 +169,6 @@ jobs:
               f"## LottieExpressions (main vs {branch_name}) (tickCnt={os.environ['TICK_COUNT']})",
               "",
               f"- Branch: `{merge_status.get('branch', branch_name)}`",
-              f"- Status: `{merge_status.get('status', 'unknown')}`",
               "",
           ]
 
