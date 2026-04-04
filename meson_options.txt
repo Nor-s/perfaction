@@ -15,9 +15,3 @@ option('thorvg_linkage',
   choices: ['static', 'shared'],
   value: 'static',
   description: 'Select ThorVG linkage type for the subproject')
-
-option('example_tick_count',
-  type: 'integer',
-  value: 5000,
-  min: 1,
-  description: 'Set the tick count at which FPS example runs exit')

@@ -53,16 +53,13 @@
 
 using namespace std;
 
-#ifndef TVGEXAMPLE_MAX_TICK_COUNT
-#define TVGEXAMPLE_MAX_TICK_COUNT 5000
-#endif
-
 /************************************************************************/
 /* Common Template Code                                                 */
 /************************************************************************/
 
 namespace tvgexam
 {
+    static uint32_t maxTickCount = 4000;
 
 	bool verify(tvg::Result result, string failMsg = "");
 
@@ -233,7 +230,7 @@ namespace tvgexam
 				auto result = 1 / ema_dt;
 				mfps += result;
 				if (tickCnt % 10 == 0) printf("[%5d]: %0.2f / %0.2f fps\n", tickCnt, result, mfps / (tickCnt - 59));
-				if (tickCnt == TVGEXAMPLE_MAX_TICK_COUNT) {
+				if (tickCnt == maxTickCount) {
 					exit(0);
 				}
 			}
@@ -595,6 +592,11 @@ namespace tvgexam
 		if (argc > 1) {
 			if (!strcmp(argv[1], "gl")) engine = 1;
 			if (!strcmp(argv[1], "wg")) engine = 2;
+		}
+
+		if (argc > 3) {
+			auto value = atoi(argv[3]);
+			if (value > 0) maxTickCount = static_cast<uint32_t>(value);
 		}
 
 		unique_ptr<Window> window;

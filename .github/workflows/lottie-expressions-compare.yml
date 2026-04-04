@@ -216,17 +216,16 @@ jobs:
               -Dbuildtype=release \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
-              -Dexample_tick_count=${{ inputs.tick_count }} \
               -Dthreads=true
             meson compile -C "$build_dir"
 
             if [ "$platform" = "ubuntu" ]; then
-              /usr/bin/time -v -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw 0 > "$raw_log" 2>&1
+              /usr/bin/time -v -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw 0 "${{ inputs.tick_count }}" > "$raw_log" 2>&1
               status=$?
               python3 -c "import re, sys, pathlib; state=sys.argv[1]; metrics_path=pathlib.Path(sys.argv[2]); out_path=pathlib.Path(sys.argv[3]); text=metrics_path.read_text(encoding='utf-8', errors='replace'); patterns={'rss_kb': r'Maximum resident set size \\(kbytes\\):\\s*(\\d+)', 'user_sec': r'User time \\(seconds\\):\\s*([0-9.]+)', 'sys_sec': r'System time \\(seconds\\):\\s*([0-9.]+)', 'elapsed': r'Elapsed \\(wall clock\\) time \\(h:mm:ss or m:ss\\):\\s*([0-9:.]+)', 'vol_cs': r'Voluntary context switches:\\s*(\\d+)', 'invol_cs': r'Involuntary context switches:\\s*(\\d+)'}; extract=lambda key: (re.search(patterns[key], text).group(1) if re.search(patterns[key], text) else ''); values=[state, extract('rss_kb'), extract('user_sec'), extract('sys_sec'), extract('elapsed'), extract('vol_cs'), extract('invol_cs')]; out_path.open('a', encoding='utf-8').write('\\t'.join(values)+'\\n')" "$state" "$metrics_file" "${repo_root}/ci-report/${platform}_runtime_metrics.tsv"
               python3 -c "import re, sys, pathlib; state=sys.argv[1]; metrics_path=pathlib.Path(sys.argv[2]); out_path=pathlib.Path(sys.argv[3]); text=metrics_path.read_text(encoding='utf-8', errors='replace'); m=re.search(r'Elapsed \\(wall clock\\) time \\(h:mm:ss or m:ss\\):\\s*([0-9:.]+)', text); elapsed=m.group(1) if m else 'n/a'; out_path.open('a', encoding='utf-8').write(f'{state}\\t{elapsed}\\n')" "$state" "$metrics_file" "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
             else
-              /usr/bin/time -p -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw 0 > "$raw_log" 2>&1
+              /usr/bin/time -p -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw 0 "${{ inputs.tick_count }}" > "$raw_log" 2>&1
               status=$?
               elapsed="$(awk '/^real / {print $2 "s"}' "$metrics_file" | head -n 1)"
               printf '%s\t%s\n' "$state" "${elapsed:-n/a}" >> "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
@@ -283,12 +282,12 @@ jobs:
             $rawLog = "ci-report/raw_${platform}_${State}_sw_0.tmp"
             $finalLog = "ci-report/${platform}_${State}_sw_0.log"
 
-            meson setup --wipe $buildDir "-Dbuildtype=release" "-Doptimization=s" "-Dthorvg_subproject=thorvg-main" "-Dexample_tick_count=${{ inputs.tick_count }}" "-Dthreads=true"
+            meson setup --wipe $buildDir "-Dbuildtype=release" "-Doptimization=s" "-Dthorvg_subproject=thorvg-main" "-Dthreads=true"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             meson compile -C $buildDir
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            & ".\$buildDir\src\LottieExpressions.exe" sw 0 *>&1 | Tee-Object -FilePath $rawLog
+            & ".\$buildDir\src\LottieExpressions.exe" sw 0 "${{ inputs.tick_count }}" *>&1 | Tee-Object -FilePath $rawLog
             $stopwatch.Stop()
             $status = $LASTEXITCODE
             $elapsed = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:F3}s", $stopwatch.Elapsed.TotalSeconds)
@@ -342,11 +341,10 @@ jobs:
               -Dbuildtype=release \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
-              -Dexample_tick_count=${{ inputs.tick_count }} \
               -Dthreads=true
             meson compile -C "$build_dir"
             start_ns="$(date +%s%N)"
-            "./${build_dir}/src/LottieExpressions.exe" sw 0 > "$raw_log" 2>&1
+            "./${build_dir}/src/LottieExpressions.exe" sw 0 "${{ inputs.tick_count }}" > "$raw_log" 2>&1
             status=$?
             end_ns="$(date +%s%N)"
             elapsed="$(awk -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf "%.3fs", (end - start) / 1000000000 }')"

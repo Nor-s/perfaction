@@ -89,19 +89,19 @@ jobs:
       - name: Build and Run Variants
         shell: bash
         run: |
-          setup_args=(-Dbuildtype=release -Doptimization=s -Dexample_tick_count=${TVG_TICK_COUNT})
+          setup_args=(-Dbuildtype=release -Doptimization=s)
 
           run_case() {
             subproject="$1"
             threads="$2"
-            sw="$3"
+            threadcnt="$3"
             build_dir="build-${subproject}-${threads}"
-            raw_log="ci-report/raw_${{ matrix.platform }}_${subproject}_${threads}_sw_${sw}.tmp"
-            final_log="ci-report/${{ matrix.platform }}_${subproject}_${threads}_sw_${sw}.log"
+            raw_log="ci-report/raw_${{ matrix.platform }}_${subproject}_${threads}_sw_${threadcnt}.tmp"
+            final_log="ci-report/${{ matrix.platform }}_${subproject}_${threads}_sw_${threadcnt}.log"
 
             meson setup --wipe "$build_dir" "${setup_args[@]}" -Dthorvg_subproject="$subproject" -Dthreads="$threads"
             meson compile -C "$build_dir"
-            "./${build_dir}/src/LottieExpressions" sw "$sw" > "$raw_log" 2>&1
+            "./${build_dir}/src/LottieExpressions" sw "$threadcnt" "${TVG_TICK_COUNT}" > "$raw_log" 2>&1
             status=$?
             tail -n 30 "$raw_log" > "$final_log"
             return $status
