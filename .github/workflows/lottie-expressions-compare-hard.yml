@@ -337,8 +337,8 @@ jobs:
           popd > /dev/null
           build_state merged
 
-          run_once base 0 warmup 100
-          run_once merged 0 warmup 100
+          run_once base 0 warmup 1000
+          run_once merged 0 warmup 1000
 
           for iteration in $(seq 1 "$loop_count"); do
             run_once base "$iteration" measure "$tick_count"
@@ -431,8 +431,8 @@ jobs:
           Set-Location $repoRoot
           Build-State -State merged
 
-          Run-Once -State base -Iteration 0 -RunType warmup -Ticks 100
-          Run-Once -State merged -Iteration 0 -RunType warmup -Ticks 100
+          Run-Once -State base -Iteration 0 -RunType warmup -Ticks 1000
+          Run-Once -State merged -Iteration 0 -RunType warmup -Ticks 1000
 
           for ($iteration = 1; $iteration -le $loopCount; $iteration++) {
             Run-Once -State base -Iteration $iteration -RunType measure -Ticks $tickCount
@@ -521,8 +521,8 @@ jobs:
           popd > /dev/null
           build_state merged
 
-          run_once base 0 warmup 100
-          run_once merged 0 warmup 100
+          run_once base 0 warmup 1000
+          run_once merged 0 warmup 1000
 
           for iteration in $(seq 1 "$loop_count"); do
             run_once base "$iteration" measure "$tick_count"
@@ -582,7 +582,7 @@ jobs:
           lines = [
               f"## LottieExpressions (main vs {branch_name}) (tickCnt={tick_count})",
               "",
-              f"- Average of `{loop_count}` measured runs after `1` warmup run (`100` ticks)",
+              f"- Average of `{loop_count}` measured runs after `1` warmup run (`1000` ticks)",
               "",
           ]
 
