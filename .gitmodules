@@ -4,3 +4,6 @@
 [submodule "subprojects/thorvg-main"]
 	path = subprojects/thorvg-main
 	url = https://github.com/thorvg/thorvg.git
+[submodule "subprojects/thorvg-feature"]
+	path = subprojects/thorvg-feature
+	url = https://github.com/thorvg/thorvg.git
