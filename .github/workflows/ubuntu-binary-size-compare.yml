@@ -21,8 +21,73 @@ concurrency:
 
 jobs:
   build:
-    name: ubuntu
-    runs-on: ubuntu-latest
+    name: ${{ matrix.label }}
+    runs-on: ${{ matrix.runs_on }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: ubuntu x86_64 gcc
+            key: ubuntu-x86_64-gcc
+            runs_on: ubuntu-24.04
+            compiler: gcc
+            target_arch: x86_64
+            extra_packages: ''
+            cc: gcc
+            cxx: g++
+            c_args: ''
+            cpp_args: ''
+            c_link_args: ''
+            cpp_link_args: ''
+          - label: ubuntu x86_64 clang
+            key: ubuntu-x86_64-clang
+            runs_on: ubuntu-24.04
+            compiler: clang
+            target_arch: x86_64
+            extra_packages: 'clang lld'
+            cc: clang
+            cxx: clang++
+            c_args: ''
+            cpp_args: ''
+            c_link_args: ''
+            cpp_link_args: ''
+          - label: ubuntu x86 gcc
+            key: ubuntu-x86-gcc
+            runs_on: ubuntu-24.04
+            compiler: gcc
+            target_arch: x86
+            extra_packages: 'gcc-multilib g++-multilib'
+            cc: gcc
+            cxx: g++
+            c_args: -m32
+            cpp_args: -m32
+            c_link_args: -m32
+            cpp_link_args: -m32
+          - label: ubuntu arm64 gcc
+            key: ubuntu-arm64-gcc
+            runs_on: ubuntu-24.04-arm
+            compiler: gcc
+            target_arch: arm64
+            extra_packages: ''
+            cc: gcc
+            cxx: g++
+            c_args: ''
+            cpp_args: ''
+            c_link_args: ''
+            cpp_link_args: ''
+          - label: ubuntu arm64 clang
+            key: ubuntu-arm64-clang
+            runs_on: ubuntu-24.04-arm
+            compiler: clang
+            target_arch: arm64
+            extra_packages: 'clang lld'
+            cc: clang
+            cxx: clang++
+            c_args: ''
+            cpp_args: ''
+            c_link_args: ''
+            cpp_link_args: ''
+
     steps:
       - uses: actions/checkout@v5
         with:
@@ -30,14 +95,23 @@ jobs:
 
       - name: Install Packages
         shell: bash
+        env:
+          EXTRA_PACKAGES: ${{ matrix.extra_packages }}
         run: |
-          packages=(meson ninja-build libsdl2-dev libgl1-mesa-dev)
+          packages=(meson ninja-build libgl1-mesa-dev)
+          if [ -n "$EXTRA_PACKAGES" ]; then
+            for pkg in $EXTRA_PACKAGES; do
+              packages+=("$pkg")
+            done
+          fi
+
           missing=()
           for pkg in "${packages[@]}"; do
             if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
               missing+=("$pkg")
             fi
           done
+
           if [ "${#missing[@]}" -gt 0 ]; then
             sudo apt-get update
             sudo apt-get install -y "${missing[@]}"
@@ -52,28 +126,54 @@ jobs:
 
       - name: Collect Binary Size Metrics
         shell: bash
+        env:
+          TARGET_BRANCH: ${{ inputs.branch }}
+          MATRIX_KEY: ${{ matrix.key }}
+          COMPILER: ${{ matrix.compiler }}
+          TARGET_ARCH: ${{ matrix.target_arch }}
+          CC_NAME: ${{ matrix.cc }}
+          CXX_NAME: ${{ matrix.cxx }}
+          C_ARGS_VALUE: ${{ matrix.c_args }}
+          CPP_ARGS_VALUE: ${{ matrix.cpp_args }}
+          C_LINK_ARGS_VALUE: ${{ matrix.c_link_args }}
+          CPP_LINK_ARGS_VALUE: ${{ matrix.cpp_link_args }}
         run: |
           repo_root="$PWD"
-          target_branch="${{ github.event.inputs.branch }}"
           subproject_dir="subprojects/thorvg-main"
+
+          meson_args=(
+            -Dbuildtype=release
+            -Doptimization=s
+            -Dengines=sw
+            -Dloaders=all
+            -Dsavers=all
+            -Dbindings=capi
+            -Dextra=lottie_exp,openmp
+            -Db_sanitize=none
+            -Dthreads=true
+            -Ddefault_library=shared
+          )
+
+          if [ -n "$C_ARGS_VALUE" ]; then
+            meson_args+=("-Dc_args=${C_ARGS_VALUE}")
+          fi
+          if [ -n "$CPP_ARGS_VALUE" ]; then
+            meson_args+=("-Dcpp_args=${CPP_ARGS_VALUE}")
+          fi
+          if [ -n "$C_LINK_ARGS_VALUE" ]; then
+            meson_args+=("-Dc_link_args=${C_LINK_ARGS_VALUE}")
+          fi
+          if [ -n "$CPP_LINK_ARGS_VALUE" ]; then
+            meson_args+=("-Dcpp_link_args=${CPP_LINK_ARGS_VALUE}")
+          fi
 
           collect_size() {
             state="$1"
             build_dir="build-${state}"
-            size_out="${repo_root}/ci-report/ubuntu_${state}.size.txt"
+            size_out="${repo_root}/ci-report/${MATRIX_KEY}_${state}.size.txt"
 
-            meson setup --wipe "$build_dir" \
-              -Dbuildtype=release \
-              -Doptimization=s \
-              -Dengines=sw \
-              -Dloaders=all \
-              -Dsavers=all \
-              -Dbindings=capi \
-              -Dextra=lottie_exp,openmp \
-              -Db_sanitize=none \
-              -Dthreads=true \
-              -Ddefault_library=shared
-            meson compile -C "$build_dir"
+            CC="$CC_NAME" CXX="$CXX_NAME" meson setup --wipe "$build_dir" "${meson_args[@]}"
+            CC="$CC_NAME" CXX="$CXX_NAME" meson compile -C "$build_dir"
 
             lib_path="$(find "$build_dir/src" -maxdepth 1 -type f -name 'libthorvg-1.so*' | sort | head -n 1)"
             if [ -z "$lib_path" ]; then
@@ -89,34 +189,39 @@ jobs:
               "$state" \
               "$text_size" \
               "$data_size" \
-              "$total_size" >> "${repo_root}/ci-report/ubuntu_binary_sizes.tsv"
+              "$total_size" >> "${repo_root}/ci-report/${MATRIX_KEY}_binary_sizes.tsv"
           }
 
-          : > "${repo_root}/ci-report/ubuntu_binary_sizes.tsv"
-          printf 'branch\t%s\n' "$target_branch" > "${repo_root}/ci-report/merge_status.tsv"
+          : > "${repo_root}/ci-report/${MATRIX_KEY}_binary_sizes.tsv"
+          {
+            printf 'branch\t%s\n' "$TARGET_BRANCH"
+            printf 'compiler\t%s\n' "$COMPILER"
+            printf 'target_arch\t%s\n' "$TARGET_ARCH"
+          } > "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
 
           pushd "$subproject_dir" > /dev/null
 
-          git fetch origin \
-            "refs/heads/main:refs/remotes/origin/main" \
-            "refs/heads/${target_branch}:refs/remotes/origin/${target_branch}"
-          git log --oneline --no-merges "origin/main..origin/${target_branch}" > "${repo_root}/ci-report/feature_commits.txt" || true
+          git fetch origin "refs/heads/main"
+          main_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          git fetch origin "refs/heads/${TARGET_BRANCH}"
+          feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt" || true
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git checkout --detach origin/main
+          git checkout --detach "${main_commit}"
           collect_size base
 
-          git switch -C ci-merge-check origin/main
-          if ! git merge --no-commit --no-ff "origin/${target_branch}"; then
-            printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/merge_status.tsv"
+          git switch -C ci-merge-check "${main_commit}"
+          if ! git merge --no-commit --no-ff "${feature_commit}"; then
+            printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
             git merge --abort || true
             popd > /dev/null
             exit 1
           fi
 
-          printf 'status\tmerged\n' >> "${repo_root}/ci-report/merge_status.tsv"
+          printf 'status\tmerged\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
           collect_size merged
 
           popd > /dev/null
@@ -125,30 +230,30 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: ubuntu-binary-size-compare
+          name: ubuntu-binary-size-compare-${{ matrix.key }}
           path: |
-            ci-report/*.size.txt
-            ci-report/*.tsv
-            ci-report/*.txt
+            ci-report/${{ matrix.key }}*.size.txt
+            ci-report/${{ matrix.key }}*.tsv
+            ci-report/${{ matrix.key }}*.txt
           if-no-files-found: warn
 
   report:
     name: Ubuntu Binary Size Report
     if: ${{ always() }}
     needs: [build]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Download Binary Size Artifacts
         uses: actions/download-artifact@v8
         with:
           path: all-size
-          pattern: ubuntu-binary-size-compare
+          pattern: ubuntu-binary-size-compare-*
           merge-multiple: true
 
       - name: Write Binary Size Summary
         shell: bash
         env:
-          BRANCH_NAME: ${{ github.event.inputs.branch }}
+          BRANCH_NAME: ${{ inputs.branch }}
         run: |
           python - <<'PY'
           import os
@@ -156,54 +261,57 @@ jobs:
 
           summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
           branch_name = os.environ["BRANCH_NAME"]
-          size_tsv_files = sorted(Path("all-size").glob("*.tsv"))
-          commits_path = Path("all-size/feature_commits.txt")
+          root = Path("all-size")
 
-          if not size_tsv_files:
+          size_tsv_files = sorted(root.glob("*_binary_sizes.tsv"))
+          status_files = sorted(root.glob("*_merge_status.tsv"))
+          commit_files = sorted(root.glob("*_feature_commits.txt"))
+
+          if not size_tsv_files and not status_files:
               summary_path.write_text(f"## Binary Size (main vs {branch_name})\n\nNo size artifacts were collected.\n", encoding="utf-8")
               raise SystemExit(0)
 
+          def format_size_delta(base_total, target_total):
+              diff = target_total - base_total
+              pct = ((target_total / base_total) - 1.0) * 100.0 if base_total else 0.0
+              pct_sign = "+" if pct > 0 else ""
+              return f"{diff:+d} bytes ({pct_sign}{pct:.2f}%)"
+
+          status_by_key = {}
+          for status_file in status_files:
+              key = status_file.name.removesuffix("_merge_status.tsv")
+              status_map = {}
+              for line in status_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                  if not line.strip():
+                      continue
+                  field, value = line.split("\t", 1)
+                  status_map[field] = value
+              status_by_key[key] = status_map
+
           size_by_key = {}
-          merge_status = {"branch": branch_name, "status": "unknown"}
-
-          for size_tsv in size_tsv_files:
-              if size_tsv.name == "merge_status.tsv":
-                  for line in size_tsv.read_text(encoding="utf-8", errors="replace").splitlines():
-                      if not line.strip():
-                          continue
-                      key, value = line.split("\t", 1)
-                      merge_status[key] = value
-                  continue
-
-              for line in size_tsv.read_text(encoding="utf-8", errors="replace").splitlines():
+          for size_file in size_tsv_files:
+              key = size_file.name.removesuffix("_binary_sizes.tsv")
+              size_by_key[key] = {}
+              for line in size_file.read_text(encoding="utf-8", errors="replace").splitlines():
                   if not line.strip():
                       continue
                   state, text_size, data_size, total_size = line.split("\t")
-                  size_by_key[state] = {
+                  size_by_key[key][state] = {
                       "text": int(text_size),
                       "data": int(data_size),
                       "total": int(total_size),
                   }
 
-          def format_size_delta(base_total, target_total):
-              diff = target_total - base_total
-              pct = ((target_total / base_total) - 1.0) * 100.0
-              pct_sign = "+" if pct > 0 else ""
-              diff_sign = "+" if diff > 0 else ""
-              return f"{diff_sign}{diff} bytes ({pct_sign}{pct:.2f}%)"
+          commit_lines = []
+          for commit_file in commit_files:
+              commit_lines = [line for line in commit_file.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+              if commit_lines:
+                  break
 
           lines = [
               f"## Binary Size (main vs {branch_name})",
               "",
-              f"- Branch: `{merge_status.get('branch', branch_name)}`",
-              f"- Status: `{merge_status.get('status', 'unknown')}`",
-              "",
           ]
-
-          if commits_path.exists():
-              commit_lines = [line for line in commits_path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
-          else:
-              commit_lines = []
 
           lines.append("### Added Commits")
           lines.append("")
@@ -215,23 +323,31 @@ jobs:
               lines.append("No additional commits.")
           lines.append("")
 
-          if merge_status.get("status") != "merged":
-              lines.append("Merge conflict occurred. Size comparison was not completed.")
-              summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
-              raise SystemExit(0)
-
           lines.extend([
-              "| Comparison | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
-              "|---|---:|---:|---:|---:|---:|---:|---:|",
+              "| Runner | Compiler | Target | Status | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
+              "|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
           ])
 
-          base = size_by_key.get("base")
-          target = size_by_key.get("merged")
-          if base is None or target is None:
-              lines.append(f"| main vs main+{branch_name} | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
-          else:
+          all_keys = sorted(set(status_by_key) | set(size_by_key))
+          for key in all_keys:
+              status = status_by_key.get(key, {})
+              compiler = status.get("compiler", "n/a")
+              target_arch = status.get("target_arch", "n/a")
+              run_status = status.get("status", "unknown")
+              runner = "ubuntu-24.04-arm" if "arm64" in key else "ubuntu-24.04"
+
+              base = size_by_key.get(key, {}).get("base")
+              target = size_by_key.get(key, {}).get("merged")
+              if run_status != "merged" or base is None or target is None:
+                  lines.append(
+                      f"| {runner} | {compiler} | {target_arch} | {run_status} | "
+                      "n/a | n/a | n/a | n/a | n/a | n/a | n/a |"
+                  )
+                  continue
+
               lines.append(
-                  f"| main vs main+{branch_name} | {base['text']} | {base['data']} | {base['total']} | "
+                  f"| {runner} | {compiler} | {target_arch} | {run_status} | "
+                  f"{base['text']} | {base['data']} | {base['total']} | "
                   f"{target['text']} | {target['data']} | {target['total']} | "
                   f"{format_size_delta(base['total'], target['total'])} |"
               )
