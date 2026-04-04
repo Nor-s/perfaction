@@ -200,14 +200,18 @@ jobs:
             printf 'compiler_path\t%s\n' "$(command -v "$CXX_NAME")"
             printf 'compiler_version\t%s\n' "$("$CXX_NAME" --version | head -n 1)"
           } > "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
+          : > "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt"
 
-          rebase_ok=true
+          merge_ok=true
           pushd "$subproject_dir" > /dev/null
 
-          git fetch origin "refs/heads/main"
-          main_commit="$(git rev-parse FETCH_HEAD^{commit})"
-          git fetch origin "refs/heads/${TARGET_BRANCH}"
-          feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          main_commit="$(git rev-parse HEAD^{commit})"
+          if [ "$TARGET_BRANCH" = "main" ]; then
+            feature_commit="$main_commit"
+          else
+            git fetch origin "refs/heads/${TARGET_BRANCH}"
+            feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -215,23 +219,24 @@ jobs:
           git checkout --detach "${main_commit}"
           collect_size base
 
-          git switch -C ci-rebase-check "${feature_commit}"
-          if ! git -c advice.mergeConflict=false rebase "${main_commit}"; then
-            printf 'status\trebase-conflict\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
-            git diff --name-only --diff-filter=U > "${repo_root}/ci-report/${MATRIX_KEY}_conflicts.txt" || true
-            git rebase --abort || true
-            rebase_ok=false
-          else
-            printf 'status\trebased\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
-            git log --oneline --no-merges "${main_commit}..HEAD" > "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt" || true
+          if [ "$TARGET_BRANCH" = "main" ]; then
             collect_size merged
+            printf 'status\tmerged\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
+          else
+            git switch -C ci-merge-check "${main_commit}"
+            if ! git -c advice.mergeConflict=false merge --no-commit --no-ff "${feature_commit}"; then
+              printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
+              git diff --name-only --diff-filter=U > "${repo_root}/ci-report/${MATRIX_KEY}_conflicts.txt" || true
+              git merge --abort || true
+              merge_ok=false
+            else
+              git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt" || true
+              collect_size merged
+              printf 'status\tmerged\n' >> "${repo_root}/ci-report/${MATRIX_KEY}_merge_status.tsv"
+            fi
           fi
 
           popd > /dev/null
-
-          if [ "$rebase_ok" != true ] && [ ! -f "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt" ]; then
-            : > "${repo_root}/ci-report/${MATRIX_KEY}_feature_commits.txt"
-          fi
 
       - name: Upload Binary Size Artifacts
         if: always()
@@ -338,8 +343,10 @@ jobs:
               lines.append("No additional commits.")
           lines.append("")
 
+          incomplete_keys = []
+
           if any(conflicts_by_key.values()):
-              lines.append("### Rebase Conflicts")
+              lines.append("### Merge Conflicts")
               lines.append("")
               for key in sorted(conflicts_by_key):
                   entries = conflicts_by_key[key]
@@ -372,6 +379,7 @@ jobs:
               base = size_by_key.get(key, {}).get("base")
               target = size_by_key.get(key, {}).get("merged")
               if run_status != "merged" or base is None or target is None:
+                  incomplete_keys.append((key, runner, compiler, target_arch, run_status, base is not None, target is not None))
                   lines.append(
                       f"| {runner} | {compiler} | {target_arch} | "
                       "n/a | n/a | n/a | n/a | n/a | n/a | n/a |"
@@ -399,6 +407,16 @@ jobs:
                   f"- `{runner}` / `{target_arch}`: `{compiler}` from `{compiler_path}` "
                   f"({compiler_version})"
               )
+
+          if incomplete_keys:
+              lines.append("")
+              lines.append("### Incomplete Collections")
+              lines.append("")
+              for _, runner, compiler, target_arch, run_status, has_base, has_target in incomplete_keys:
+                  lines.append(
+                      f"- `{runner}` / `{compiler}` / `{target_arch}`: "
+                      f"status=`{run_status}`, base_size={'yes' if has_base else 'no'}, target_size={'yes' if has_target else 'no'}"
+                  )
 
           summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY

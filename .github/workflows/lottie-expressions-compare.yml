@@ -257,12 +257,16 @@ jobs:
           printf 'branch\t%s\n' "$target_branch" > "${repo_root}/ci-report/${platform}_merge_status.tsv"
           : > "${repo_root}/ci-report/${platform}_runtime_metrics.tsv"
           : > "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
+          : > "${repo_root}/ci-report/${platform}_feature_commits.txt"
 
           pushd "$subproject_dir" > /dev/null
-          git fetch origin "refs/heads/main"
-          main_commit="$(git rev-parse FETCH_HEAD^{commit})"
-          git fetch origin "refs/heads/${target_branch}"
-          feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          main_commit="$(git rev-parse HEAD^{commit})"
+          if [ "$target_branch" = "main" ]; then
+            feature_commit="$main_commit"
+          else
+            git fetch origin "refs/heads/${target_branch}"
+            feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -271,17 +275,21 @@ jobs:
           popd > /dev/null
           collect_perf base
 
-          pushd "$subproject_dir" > /dev/null
-          git switch -C ci-rebase-check "${feature_commit}"
-          if ! git rebase "${main_commit}"; then
-            printf 'status\trebase-conflict\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
-            git rebase --abort || true
+          if [ "$target_branch" = "main" ]; then
+            printf 'status\tmerged\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
+          else
+            pushd "$subproject_dir" > /dev/null
+            git switch -C ci-merge-check "${main_commit}"
+            if ! git merge --no-commit --no-ff "${feature_commit}"; then
+              printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
+              git merge --abort || true
+              popd > /dev/null
+              exit 1
+            fi
+            printf 'status\tmerged\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
+            git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/${platform}_feature_commits.txt" || true
             popd > /dev/null
-            exit 1
           fi
-          printf 'status\trebased\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
-          git log --oneline --no-merges "${main_commit}..HEAD" > "${repo_root}/ci-report/${platform}_feature_commits.txt" || true
-          popd > /dev/null
 
           collect_perf merged
 
@@ -317,28 +325,36 @@ jobs:
 
           "branch`t$targetBranch" | Set-Content "ci-report/${platform}_merge_status.tsv"
           "" | Set-Content "ci-report/${platform}_elapsed_metrics.tsv"
+          "" | Set-Content "ci-report/${platform}_feature_commits.txt"
           Set-Location $subprojectDir
-          git fetch origin "refs/heads/main"
-          $mainCommit = (git rev-parse "FETCH_HEAD^{commit}").Trim()
-          git fetch origin "refs/heads/$targetBranch"
-          $featureCommit = (git rev-parse "FETCH_HEAD^{commit}").Trim()
+          $mainCommit = (git rev-parse "HEAD^{commit}").Trim()
+          if ($targetBranch -eq "main") {
+            $featureCommit = $mainCommit
+          } else {
+            git fetch origin "refs/heads/$targetBranch"
+            $featureCommit = (git rev-parse "FETCH_HEAD^{commit}").Trim()
+          }
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git checkout --detach $mainCommit
           Set-Location $repoRoot
           Invoke-Perf -State base
 
-          Set-Location $subprojectDir
-          git checkout -B ci-rebase-check $featureCommit
-          git rebase $mainCommit
-          if ($LASTEXITCODE -ne 0) {
-            "status`trebase-conflict" | Add-Content "$repoRoot/ci-report/${platform}_merge_status.tsv"
-            git rebase --abort
-            exit $LASTEXITCODE
+          if ($targetBranch -eq "main") {
+            "status`tmerged" | Add-Content "$repoRoot/ci-report/${platform}_merge_status.tsv"
+          } else {
+            Set-Location $subprojectDir
+            git checkout -B ci-merge-check $mainCommit
+            git merge --no-commit --no-ff $featureCommit
+            if ($LASTEXITCODE -ne 0) {
+              "status`tmerge-conflict" | Add-Content "$repoRoot/ci-report/${platform}_merge_status.tsv"
+              git merge --abort
+              exit $LASTEXITCODE
+            }
+            "status`tmerged" | Add-Content "$repoRoot/ci-report/${platform}_merge_status.tsv"
+            git log --oneline --no-merges "$mainCommit..$featureCommit" | Set-Content "$repoRoot/ci-report/${platform}_feature_commits.txt"
+            Set-Location $repoRoot
           }
-          "status`trebased" | Add-Content "$repoRoot/ci-report/${platform}_merge_status.tsv"
-          git log --oneline --no-merges "$mainCommit..HEAD" | Set-Content "$repoRoot/ci-report/${platform}_feature_commits.txt"
-          Set-Location $repoRoot
           Invoke-Perf -State merged
 
       - name: Compare LottieExpressions (Windows MSYS2)
@@ -375,12 +391,16 @@ jobs:
           printf 'branch\t%s\n' "$target_branch" > "${repo_root}/ci-report/${platform}_merge_status.tsv"
           : > "${repo_root}/ci-report/${platform}_runtime_metrics.tsv"
           : > "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
+          : > "${repo_root}/ci-report/${platform}_feature_commits.txt"
 
           pushd "$subproject_dir" > /dev/null
-          git fetch origin "refs/heads/main"
-          main_commit="$(git rev-parse FETCH_HEAD^{commit})"
-          git fetch origin "refs/heads/${target_branch}"
-          feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          main_commit="$(git rev-parse HEAD^{commit})"
+          if [ "$target_branch" = "main" ]; then
+            feature_commit="$main_commit"
+          else
+            git fetch origin "refs/heads/${target_branch}"
+            feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -389,17 +409,21 @@ jobs:
           popd > /dev/null
           collect_perf base
 
-          pushd "$subproject_dir" > /dev/null
-          git switch -C ci-rebase-check "${feature_commit}"
-          if ! git rebase "${main_commit}"; then
-            printf 'status\trebase-conflict\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
-            git rebase --abort || true
+          if [ "$target_branch" = "main" ]; then
+            printf 'status\tmerged\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
+          else
+            pushd "$subproject_dir" > /dev/null
+            git switch -C ci-merge-check "${main_commit}"
+            if ! git merge --no-commit --no-ff "${feature_commit}"; then
+              printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
+              git merge --abort || true
+              popd > /dev/null
+              exit 1
+            fi
+            printf 'status\tmerged\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
+            git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/${platform}_feature_commits.txt" || true
             popd > /dev/null
-            exit 1
           fi
-          printf 'status\trebased\n' >> "${repo_root}/ci-report/${platform}_merge_status.tsv"
-          git log --oneline --no-merges "${main_commit}..HEAD" > "${repo_root}/ci-report/${platform}_feature_commits.txt" || true
-          popd > /dev/null
 
           collect_perf merged
 

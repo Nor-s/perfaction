@@ -86,12 +86,16 @@ jobs:
           printf 'branch\t%s\n' "$target_branch" > "${repo_root}/ci-report/merge_status.tsv"
           : > "${repo_root}/ci-report/runtime_metrics.tsv"
           : > "${repo_root}/ci-report/elapsed_metrics.tsv"
+          : > "${repo_root}/ci-report/feature_commits.txt"
 
           pushd "$subproject_dir" > /dev/null
-          git fetch origin "refs/heads/main"
-          main_commit="$(git rev-parse FETCH_HEAD^{commit})"
-          git fetch origin "refs/heads/${target_branch}"
-          feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          main_commit="$(git rev-parse HEAD^{commit})"
+          if [ "$target_branch" = "main" ]; then
+            feature_commit="$main_commit"
+          else
+            git fetch origin "refs/heads/${target_branch}"
+            feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
@@ -100,17 +104,21 @@ jobs:
           popd > /dev/null
           collect_perf base
 
-          pushd "$subproject_dir" > /dev/null
-          git switch -C ci-rebase-check "${feature_commit}"
-          if ! git rebase "${main_commit}"; then
-            printf 'status\trebase-conflict\n' >> "${repo_root}/ci-report/merge_status.tsv"
-            git rebase --abort || true
+          if [ "$target_branch" = "main" ]; then
+            printf 'status\tmerged\n' >> "${repo_root}/ci-report/merge_status.tsv"
+          else
+            pushd "$subproject_dir" > /dev/null
+            git switch -C ci-merge-check "${main_commit}"
+            if ! git merge --no-commit --no-ff "${feature_commit}"; then
+              printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/merge_status.tsv"
+              git merge --abort || true
+              popd > /dev/null
+              exit 1
+            fi
+            printf 'status\tmerged\n' >> "${repo_root}/ci-report/merge_status.tsv"
+            git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/feature_commits.txt" || true
             popd > /dev/null
-            exit 1
           fi
-          printf 'status\trebased\n' >> "${repo_root}/ci-report/merge_status.tsv"
-          git log --oneline --no-merges "${main_commit}..HEAD" > "${repo_root}/ci-report/feature_commits.txt" || true
-          popd > /dev/null
 
           collect_perf merged
 
@@ -185,8 +193,8 @@ jobs:
               lines.append("No additional commits.")
           lines.append("")
 
-          if merge_status.get("status") != "rebased":
-              lines.append("Rebase conflict occurred. Performance comparison was not completed.")
+          if merge_status.get("status") != "merged":
+              lines.append("Merge conflict occurred. Performance comparison was not completed.")
               summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
               raise SystemExit(0)
 
