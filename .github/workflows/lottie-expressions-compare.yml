@@ -160,11 +160,11 @@ jobs:
             final_log="${repo_root}/ci-report/${platform}_${state}_sw_0.log"
             metrics_file="${repo_root}/ci-report/${platform}_${state}_metrics.txt"
 
-            meson setup "$build_dir" \
+            meson setup --wipe "$build_dir" \
               -Dbuildtype=release \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
-              -Dthreads=true
+              -Dthreads=true --wipe
             meson compile -C "$build_dir"
 
             if [ "$platform" = "ubuntu" ]; then
@@ -226,7 +226,7 @@ jobs:
             $rawLog = "ci-report/raw_${platform}_${State}_sw_0.tmp"
             $finalLog = "ci-report/${platform}_${State}_sw_0.log"
 
-            meson setup $buildDir "-Dbuildtype=release" "-Doptimization=s" "-Dthorvg_subproject=thorvg-main" "-Dthreads=true"
+            meson setup --wipe $buildDir "-Dbuildtype=release" "-Doptimization=s" "-Dthorvg_subproject=thorvg-main" "-Dthreads=true"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             meson compile -C $buildDir
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -276,7 +276,7 @@ jobs:
             raw_log="${repo_root}/ci-report/raw_${platform}_${state}_sw_0.tmp"
             final_log="${repo_root}/ci-report/${platform}_${state}_sw_0.log"
 
-            meson setup "$build_dir" \
+            meson setup --wipe "$build_dir" \
               -Dbuildtype=release \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
