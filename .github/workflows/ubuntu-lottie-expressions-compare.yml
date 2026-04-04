@@ -1,4 +1,5 @@
 name: Ubuntu LottieExpressions Compare
+run-name: Ubuntu LottieExpressions Compare (main vs ${{ inputs.branch }})
 
 on:
   workflow_dispatch:
@@ -7,9 +8,17 @@ on:
         description: ThorVG branch to merge into main locally
         required: true
         type: string
+      tick_count:
+        description: Tick count for LottieExpressions exit
+        required: true
+        default: '4000'
+        type: string
 
 permissions:
   contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,8 +36,19 @@ jobs:
       - name: Install Packages
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y meson ninja-build libsdl2-dev libgl1-mesa-dev
+          packages=(meson ninja-build libsdl2-dev libgl1-mesa-dev)
+          missing=()
+          for pkg in "${packages[@]}"; do
+            if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+              missing+=("$pkg")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y "${missing[@]}"
+          else
+            echo "Ubuntu packages already installed."
+          fi
 
       - name: Prepare report directory
         shell: bash
@@ -53,34 +73,38 @@ jobs:
               -Dbuildtype=release \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
+              -Dexample_tick_count=${{ inputs.tick_count }} \
               -Dthreads=true
             meson compile -C "$build_dir"
             /usr/bin/time -v -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw 0 > "$raw_log" 2>&1
             status=$?
             tail -n 30 "$raw_log" > "$final_log"
             python3 -c "import re, sys, pathlib; state=sys.argv[1]; metrics_path=pathlib.Path(sys.argv[2]); out_path=pathlib.Path(sys.argv[3]); text=metrics_path.read_text(encoding='utf-8', errors='replace'); patterns={'rss_kb': r'Maximum resident set size \\(kbytes\\):\\s*(\\d+)', 'user_sec': r'User time \\(seconds\\):\\s*([0-9.]+)', 'sys_sec': r'System time \\(seconds\\):\\s*([0-9.]+)', 'elapsed': r'Elapsed \\(wall clock\\) time \\(h:mm:ss or m:ss\\):\\s*([0-9:.]+)', 'vol_cs': r'Voluntary context switches:\\s*(\\d+)', 'invol_cs': r'Involuntary context switches:\\s*(\\d+)'}; extract=lambda key: (re.search(patterns[key], text).group(1) if re.search(patterns[key], text) else ''); values=[state, extract('rss_kb'), extract('user_sec'), extract('sys_sec'), extract('elapsed'), extract('vol_cs'), extract('invol_cs')]; out_path.open('a', encoding='utf-8').write('\\t'.join(values)+'\\n')" "$state" "$metrics_file" "${repo_root}/ci-report/runtime_metrics.tsv"
+            python3 -c "import re, sys, pathlib; state=sys.argv[1]; metrics_path=pathlib.Path(sys.argv[2]); out_path=pathlib.Path(sys.argv[3]); text=metrics_path.read_text(encoding='utf-8', errors='replace'); m=re.search(r'Elapsed \\(wall clock\\) time \\(h:mm:ss or m:ss\\):\\s*([0-9:.]+)', text); elapsed=m.group(1) if m else 'n/a'; out_path.open('a', encoding='utf-8').write(f'{state}\\t{elapsed}\\n')" "$state" "$metrics_file" "${repo_root}/ci-report/elapsed_metrics.tsv"
             return $status
           }
 
           printf 'branch\t%s\n' "$target_branch" > "${repo_root}/ci-report/merge_status.tsv"
           : > "${repo_root}/ci-report/runtime_metrics.tsv"
+          : > "${repo_root}/ci-report/elapsed_metrics.tsv"
 
           pushd "$subproject_dir" > /dev/null
-          git fetch origin \
-            "refs/heads/main:refs/remotes/origin/main" \
-            "refs/heads/${target_branch}:refs/remotes/origin/${target_branch}"
-          git log --oneline --no-merges "origin/main..origin/${target_branch}" > "${repo_root}/ci-report/feature_commits.txt" || true
+          git fetch origin "refs/heads/main"
+          main_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          git fetch origin "refs/heads/${target_branch}"
+          feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/feature_commits.txt" || true
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git checkout --detach origin/main
+          git checkout --detach "${main_commit}"
           popd > /dev/null
           collect_perf base
 
           pushd "$subproject_dir" > /dev/null
-          git switch -C ci-merge-check origin/main
-          if ! git merge --no-commit --no-ff "origin/${target_branch}"; then
+          git switch -C ci-merge-check "${main_commit}"
+          if ! git merge --no-commit --no-ff "${feature_commit}"; then
             printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/merge_status.tsv"
             git merge --abort || true
             popd > /dev/null
@@ -109,7 +133,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Performance Artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: all-report
           pattern: ubuntu-lottie-expressions-compare
@@ -119,6 +143,7 @@ jobs:
         shell: bash
         env:
           BRANCH_NAME: ${{ github.event.inputs.branch }}
+          TICK_COUNT: ${{ github.event.inputs.tick_count }}
         run: |
           python - <<'PY'
           import os
@@ -130,7 +155,7 @@ jobs:
           merge_status_path = Path("all-report/merge_status.tsv")
           commits_path = Path("all-report/feature_commits.txt")
           log_paths = sorted(Path("all-report").glob("*.log"))
-          metrics_path = Path("all-report/runtime_metrics.tsv")
+          elapsed_metrics_path = Path("all-report/elapsed_metrics.tsv")
 
           merge_status = {"branch": branch_name, "status": "unknown"}
           if merge_status_path.exists():
@@ -141,7 +166,7 @@ jobs:
                   merge_status[key] = value
 
           lines = [
-              f"## LottieExpressions (main vs {branch_name})",
+              f"## LottieExpressions (main vs {branch_name}) (tickCnt={os.environ['TICK_COUNT']})",
               "",
               f"- Branch: `{merge_status.get('branch', branch_name)}`",
               f"- Status: `{merge_status.get('status', 'unknown')}`",
@@ -174,7 +199,7 @@ jobs:
 
           fps_pattern = re.compile(r"\[\s*\d+\]:\s*([0-9.]+)\s*/\s*([0-9.]+)\s+fps")
           fps_by_state = {}
-          metrics_by_state = {}
+          elapsed_by_state = {}
 
           for log_path in log_paths:
               name = log_path.name.removesuffix(".log")
@@ -191,61 +216,26 @@ jobs:
               if avg_fps is not None:
                   fps_by_state[state] = avg_fps
 
-          if metrics_path.exists():
-              for line in metrics_path.read_text(encoding="utf-8", errors="replace").splitlines():
+          if elapsed_metrics_path.exists():
+              for line in elapsed_metrics_path.read_text(encoding="utf-8", errors="replace").splitlines():
                   if not line.strip():
                       continue
-                  state, rss_kb, user_sec, sys_sec, elapsed, vol_cs, invol_cs = line.split("\t")
-                  metrics_by_state[state] = {
-                      "rss_kb": int(rss_kb) if rss_kb else None,
-                      "user_sec": user_sec or "n/a",
-                      "sys_sec": sys_sec or "n/a",
-                      "elapsed": elapsed or "n/a",
-                      "vol_cs": int(vol_cs) if vol_cs else None,
-                      "invol_cs": int(invol_cs) if invol_cs else None,
-                  }
+                  state, elapsed = line.split("\t", 1)
+                  elapsed_by_state[state] = elapsed or "n/a"
 
           lines.extend([
-              "| Comparison | FPS Delta | Base Max RSS | Target Max RSS | Memory Delta | Base Elapsed | Target Elapsed | Base User/Sys | Target User/Sys | Base Ctx Switches | Target Ctx Switches |",
-              "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+              "| Comparison | FPS Delta | Base Elapsed | Target Elapsed |",
+              "|---|---:|---:|---:|",
           ])
 
           base = fps_by_state.get("base")
           target = fps_by_state.get("merged")
-          base_metrics = metrics_by_state.get("base", {})
-          target_metrics = metrics_by_state.get("merged", {})
           if base is None or target is None:
-              lines.append(f"| main vs main+{branch_name} | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
+              lines.append(f"| main vs main+{branch_name} | n/a | {elapsed_by_state.get('base', 'n/a')} | {elapsed_by_state.get('merged', 'n/a')} |")
           else:
               pct = ((target / base) - 1.0) * 100.0
               pct_sign = "+" if pct > 0 else ""
-              base_rss = base_metrics.get("rss_kb")
-              target_rss = target_metrics.get("rss_kb")
-              if base_rss is None or target_rss is None:
-                  memory_delta = "n/a"
-                  base_rss_text = "n/a"
-                  target_rss_text = "n/a"
-              else:
-                  rss_diff = target_rss - base_rss
-                  rss_pct = ((target_rss / base_rss) - 1.0) * 100.0 if base_rss else 0.0
-                  rss_pct_sign = "+" if rss_pct > 0 else ""
-                  memory_delta = f"{rss_diff:+d} KB ({rss_pct_sign}{rss_pct:.2f}%)"
-                  base_rss_text = f"{base_rss} KB"
-                  target_rss_text = f"{target_rss} KB"
-              base_ctx = "n/a"
-              target_ctx = "n/a"
-              if base_metrics.get("vol_cs") is not None and base_metrics.get("invol_cs") is not None:
-                  base_ctx = f"{base_metrics['vol_cs']}/{base_metrics['invol_cs']}"
-              if target_metrics.get("vol_cs") is not None and target_metrics.get("invol_cs") is not None:
-                  target_ctx = f"{target_metrics['vol_cs']}/{target_metrics['invol_cs']}"
-              lines.append(
-                  f"| main vs main+{branch_name} | {pct_sign}{pct:.2f}% | "
-                  f"{base_rss_text} | {target_rss_text} | {memory_delta} | "
-                  f"{base_metrics.get('elapsed', 'n/a')} | {target_metrics.get('elapsed', 'n/a')} | "
-                  f"{base_metrics.get('user_sec', 'n/a')}/{base_metrics.get('sys_sec', 'n/a')} | "
-                  f"{target_metrics.get('user_sec', 'n/a')}/{target_metrics.get('sys_sec', 'n/a')} | "
-                  f"{base_ctx} | {target_ctx} |"
-              )
+              lines.append(f"| main vs main+{branch_name} | {pct_sign}{pct:.2f}% | {elapsed_by_state.get('base', 'n/a')} | {elapsed_by_state.get('merged', 'n/a')} |")
 
           summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY

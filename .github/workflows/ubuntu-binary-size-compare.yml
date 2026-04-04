@@ -1,4 +1,5 @@
 name: Ubuntu Binary Size Compare
+run-name: Ubuntu Binary Size Compare (main vs ${{ inputs.branch }})
 
 on:
   workflow_dispatch:
@@ -10,6 +11,9 @@ on:
 
 permissions:
   contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -27,8 +31,19 @@ jobs:
       - name: Install Packages
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y meson ninja-build libsdl2-dev libgl1-mesa-dev
+          packages=(meson ninja-build libsdl2-dev libgl1-mesa-dev)
+          missing=()
+          for pkg in "${packages[@]}"; do
+            if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+              missing+=("$pkg")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y "${missing[@]}"
+          else
+            echo "Ubuntu packages already installed."
+          fi
 
       - name: Prepare report directory
         shell: bash
@@ -124,7 +139,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Binary Size Artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: all-size
           pattern: ubuntu-binary-size-compare

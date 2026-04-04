@@ -1,6 +1,9 @@
 cc = meson.get_compiler('cpp')
 examples_dep = [thorvg_dep, dependency('sdl2', required: true)]
-compiler_flags = ['-DSDL_MAIN_HANDLED']
+compiler_flags = [
+    '-DSDL_MAIN_HANDLED',
+    '-DTVGEXAMPLE_MAX_TICK_COUNT=@0@'.format(get_option('example_tick_count'))
+]
 
 # GL or GLES
 gl_dep = dependency('gl', required: false)

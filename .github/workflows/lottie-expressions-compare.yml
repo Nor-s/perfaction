@@ -1,4 +1,5 @@
 name: LottieExpressions Compare
+run-name: LottieExpressions Compare (main vs ${{ inputs.branch }})
 
 on:
   workflow_dispatch:
@@ -7,10 +8,18 @@ on:
         description: ThorVG branch to merge into main locally
         required: true
         type: string
+      tick_count:
+        description: Tick count for LottieExpressions exit
+        required: true
+        default: '4000'
+        type: string
 
 permissions:
   contents: read
   actions: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -40,7 +49,7 @@ jobs:
 
       - name: Set Up Python
         if: matrix.platform == 'windows-msvc'
-        uses: actions/setup-python@v5
+        uses: actions/setup-python@v6
         with:
           python-version: '3.x'
 
@@ -53,7 +62,7 @@ jobs:
 
       - name: Cache vcpkg binary cache
         if: matrix.platform == 'windows-msvc'
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: .cache/vcpkg-binary-cache
           key: windows-msvc-vcpkg-binary-${{ runner.os }}-${{ hashFiles('.github/workflows/lottie-expressions-matrix.yml') }}
@@ -82,15 +91,37 @@ jobs:
         if: matrix.platform == 'ubuntu'
         shell: bash
         run: |
-          sudo apt-get update
-          sudo apt-get install -y meson ninja-build libsdl2-dev libgl1-mesa-dev
+          packages=(meson ninja-build libsdl2-dev libgl1-mesa-dev)
+          missing=()
+          for pkg in "${packages[@]}"; do
+            if ! dpkg-query -W -f='${Status}' "$pkg" 2>/dev/null | grep -q "install ok installed"; then
+              missing+=("$pkg")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            sudo apt-get update
+            sudo apt-get install -y "${missing[@]}"
+          else
+            echo "Ubuntu packages already installed."
+          fi
 
       - name: Install Packages (macOS)
         if: matrix.platform == 'macos'
         shell: bash
         run: |
-          brew update
-          brew install meson ninja sdl2 libomp
+          formulae=(meson ninja sdl2 libomp)
+          missing=()
+          for formula in "${formulae[@]}"; do
+            if ! brew list --formula "$formula" >/dev/null 2>&1; then
+              missing+=("$formula")
+            fi
+          done
+          if [ "${#missing[@]}" -gt 0 ]; then
+            brew update
+            brew install "${missing[@]}"
+          else
+            echo "Homebrew packages already installed."
+          fi
           echo "PKG_CONFIG_PATH=$(brew --prefix)/lib/pkgconfig:$(brew --prefix sdl2)/lib/pkgconfig:$(brew --prefix libomp)/lib/pkgconfig${PKG_CONFIG_PATH:+:$PKG_CONFIG_PATH}" >> "$GITHUB_ENV"
           echo "CPPFLAGS=-I$(brew --prefix libomp)/include${CPPFLAGS:+ $CPPFLAGS}" >> "$GITHUB_ENV"
           echo "LDFLAGS=-L$(brew --prefix libomp)/lib -Wl,-rpath,$(brew --prefix libomp)/lib${LDFLAGS:+ $LDFLAGS}" >> "$GITHUB_ENV"
@@ -99,9 +130,25 @@ jobs:
         if: matrix.platform == 'windows-msvc'
         shell: powershell
         run: |
-          python -m pip install --upgrade pip
-          python -m pip install meson ninja
-          choco install pkgconfiglite -y
+          $needPipPackages = -not (Get-Command meson -ErrorAction SilentlyContinue) -or -not (Get-Command ninja -ErrorAction SilentlyContinue)
+          if ($needPipPackages) {
+            python -m pip install --upgrade pip
+          }
+          if (-not (Get-Command meson -ErrorAction SilentlyContinue)) {
+            python -m pip install meson
+          } else {
+            Write-Host "meson is already installed."
+          }
+          if (-not (Get-Command ninja -ErrorAction SilentlyContinue)) {
+            python -m pip install ninja
+          } else {
+            Write-Host "ninja is already installed."
+          }
+          if (-not (Get-Command pkg-config -ErrorAction SilentlyContinue)) {
+            choco install pkgconfiglite -y
+          } else {
+            Write-Host "pkg-config is already installed."
+          }
           $vcpkgRoot = Join-Path $env:RUNNER_TEMP 'vcpkg'
           $binaryCache = Join-Path $env:GITHUB_WORKSPACE '.cache\vcpkg-binary-cache'
           git clone https://github.com/microsoft/vcpkg.git $vcpkgRoot
@@ -109,16 +156,21 @@ jobs:
           $env:VCPKG_DEFAULT_BINARY_CACHE = $binaryCache
           $env:VCPKG_BINARY_SOURCES = "clear;files,$binaryCache,readwrite"
           & "$vcpkgRoot\bootstrap-vcpkg.bat" -disableMetrics
-          $maxAttempts = 3
-          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
-            & "$vcpkgRoot\vcpkg.exe" --vcpkg-root "$vcpkgRoot" install sdl2:x64-windows
-            if ($LASTEXITCODE -eq 0) {
-              break
+          $sdl2Pc = Join-Path $vcpkgRoot 'installed\x64-windows\lib\pkgconfig\sdl2.pc'
+          if (-not (Test-Path $sdl2Pc)) {
+            $maxAttempts = 3
+            for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+              & "$vcpkgRoot\vcpkg.exe" --vcpkg-root "$vcpkgRoot" install sdl2:x64-windows
+              if ($LASTEXITCODE -eq 0) {
+                break
+              }
+              if ($attempt -eq $maxAttempts) {
+                exit $LASTEXITCODE
+              }
+              Start-Sleep -Seconds (15 * $attempt)
             }
-            if ($attempt -eq $maxAttempts) {
-              exit $LASTEXITCODE
-            }
-            Start-Sleep -Seconds (15 * $attempt)
+          } else {
+            Write-Host "SDL2 is already installed in vcpkg."
           }
           "VCPKG_DEFAULT_BINARY_CACHE=$binaryCache" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
           "VCPKG_BINARY_SOURCES=clear;files,$binaryCache,readwrite" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
@@ -164,16 +216,20 @@ jobs:
               -Dbuildtype=release \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
-              -Dthreads=true --wipe
+              -Dexample_tick_count=${{ inputs.tick_count }} \
+              -Dthreads=true
             meson compile -C "$build_dir"
 
             if [ "$platform" = "ubuntu" ]; then
               /usr/bin/time -v -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw 0 > "$raw_log" 2>&1
               status=$?
               python3 -c "import re, sys, pathlib; state=sys.argv[1]; metrics_path=pathlib.Path(sys.argv[2]); out_path=pathlib.Path(sys.argv[3]); text=metrics_path.read_text(encoding='utf-8', errors='replace'); patterns={'rss_kb': r'Maximum resident set size \\(kbytes\\):\\s*(\\d+)', 'user_sec': r'User time \\(seconds\\):\\s*([0-9.]+)', 'sys_sec': r'System time \\(seconds\\):\\s*([0-9.]+)', 'elapsed': r'Elapsed \\(wall clock\\) time \\(h:mm:ss or m:ss\\):\\s*([0-9:.]+)', 'vol_cs': r'Voluntary context switches:\\s*(\\d+)', 'invol_cs': r'Involuntary context switches:\\s*(\\d+)'}; extract=lambda key: (re.search(patterns[key], text).group(1) if re.search(patterns[key], text) else ''); values=[state, extract('rss_kb'), extract('user_sec'), extract('sys_sec'), extract('elapsed'), extract('vol_cs'), extract('invol_cs')]; out_path.open('a', encoding='utf-8').write('\\t'.join(values)+'\\n')" "$state" "$metrics_file" "${repo_root}/ci-report/${platform}_runtime_metrics.tsv"
+              python3 -c "import re, sys, pathlib; state=sys.argv[1]; metrics_path=pathlib.Path(sys.argv[2]); out_path=pathlib.Path(sys.argv[3]); text=metrics_path.read_text(encoding='utf-8', errors='replace'); m=re.search(r'Elapsed \\(wall clock\\) time \\(h:mm:ss or m:ss\\):\\s*([0-9:.]+)', text); elapsed=m.group(1) if m else 'n/a'; out_path.open('a', encoding='utf-8').write(f'{state}\\t{elapsed}\\n')" "$state" "$metrics_file" "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
             else
-              "./${build_dir}/src/LottieExpressions" sw 0 > "$raw_log" 2>&1
+              /usr/bin/time -p -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw 0 > "$raw_log" 2>&1
               status=$?
+              elapsed="$(awk '/^real / {print $2 "s"}' "$metrics_file" | head -n 1)"
+              printf '%s\t%s\n' "$state" "${elapsed:-n/a}" >> "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
             fi
 
             tail -n 30 "$raw_log" > "$final_log"
@@ -182,6 +238,7 @@ jobs:
 
           printf 'branch\t%s\n' "$target_branch" > "${repo_root}/ci-report/${platform}_merge_status.tsv"
           : > "${repo_root}/ci-report/${platform}_runtime_metrics.tsv"
+          : > "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
 
           pushd "$subproject_dir" > /dev/null
           git fetch origin "refs/heads/main"
@@ -226,17 +283,22 @@ jobs:
             $rawLog = "ci-report/raw_${platform}_${State}_sw_0.tmp"
             $finalLog = "ci-report/${platform}_${State}_sw_0.log"
 
-            meson setup --wipe $buildDir "-Dbuildtype=release" "-Doptimization=s" "-Dthorvg_subproject=thorvg-main" "-Dthreads=true"
+            meson setup --wipe $buildDir "-Dbuildtype=release" "-Doptimization=s" "-Dthorvg_subproject=thorvg-main" "-Dexample_tick_count=${{ inputs.tick_count }}" "-Dthreads=true"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             meson compile -C $buildDir
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
             & ".\$buildDir\src\LottieExpressions.exe" sw 0 *>&1 | Tee-Object -FilePath $rawLog
+            $stopwatch.Stop()
             $status = $LASTEXITCODE
+            $elapsed = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:F3}s", $stopwatch.Elapsed.TotalSeconds)
+            "$State`t$elapsed" | Add-Content "ci-report/${platform}_elapsed_metrics.tsv"
             Get-Content $rawLog -Tail 30 | Set-Content $finalLog
             if ($status -ne 0) { exit $status }
           }
 
           "branch`t$targetBranch" | Set-Content "ci-report/${platform}_merge_status.tsv"
+          "" | Set-Content "ci-report/${platform}_elapsed_metrics.tsv"
           Set-Location $subprojectDir
           git fetch origin "refs/heads/main"
           $mainCommit = (git rev-parse "FETCH_HEAD^{commit}").Trim()
@@ -280,16 +342,22 @@ jobs:
               -Dbuildtype=release \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
+              -Dexample_tick_count=${{ inputs.tick_count }} \
               -Dthreads=true
             meson compile -C "$build_dir"
+            start_ns="$(date +%s%N)"
             "./${build_dir}/src/LottieExpressions.exe" sw 0 > "$raw_log" 2>&1
             status=$?
+            end_ns="$(date +%s%N)"
+            elapsed="$(awk -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf "%.3fs", (end - start) / 1000000000 }')"
+            printf '%s\t%s\n' "$state" "$elapsed" >> "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
             tail -n 30 "$raw_log" > "$final_log"
             return $status
           }
 
           printf 'branch\t%s\n' "$target_branch" > "${repo_root}/ci-report/${platform}_merge_status.tsv"
           : > "${repo_root}/ci-report/${platform}_runtime_metrics.tsv"
+          : > "${repo_root}/ci-report/${platform}_elapsed_metrics.tsv"
 
           pushd "$subproject_dir" > /dev/null
           git fetch origin "refs/heads/main"
@@ -336,7 +404,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Download Compare Artifacts
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           path: all-report
           pattern: lottie-expressions-compare-*
@@ -346,6 +414,7 @@ jobs:
         shell: bash
         env:
           BRANCH_NAME: ${{ github.event.inputs.branch }}
+          TICK_COUNT: ${{ github.event.inputs.tick_count }}
         run: |
           python - <<'PY'
           import os
@@ -364,7 +433,7 @@ jobs:
           }
 
           lines = [
-              f"## LottieExpressions (main vs {branch_name})",
+              f"## LottieExpressions (main vs {branch_name}) (tickCnt={os.environ['TICK_COUNT']})",
               "",
           ]
 
@@ -423,69 +492,31 @@ jobs:
                   if avg_fps is not None:
                       fps_by_state[state] = avg_fps
 
-              metrics_by_state = {}
-              metrics_path = root / f"{platform}_runtime_metrics.tsv"
-              if metrics_path.exists():
-                  for line in metrics_path.read_text(encoding="utf-8", errors="replace").splitlines():
+              elapsed_by_state = {}
+              elapsed_metrics_path = root / f"{platform}_elapsed_metrics.tsv"
+              if elapsed_metrics_path.exists():
+                  for line in elapsed_metrics_path.read_text(encoding="utf-8", errors="replace").splitlines():
                       if not line.strip():
                           continue
-                      state, rss_kb, user_sec, sys_sec, elapsed, vol_cs, invol_cs = line.split("\t")
-                      metrics_by_state[state] = {
-                          "rss_kb": int(rss_kb) if rss_kb else None,
-                          "user_sec": user_sec or "n/a",
-                          "sys_sec": sys_sec or "n/a",
-                          "elapsed": elapsed or "n/a",
-                          "vol_cs": int(vol_cs) if vol_cs else None,
-                          "invol_cs": int(invol_cs) if invol_cs else None,
-                      }
+                      state, elapsed = line.split("\t", 1)
+                      elapsed_by_state[state] = elapsed or "n/a"
 
               lines.extend([
-                  "| Comparison | FPS Delta | Base Max RSS | Target Max RSS | Memory Delta | Base Elapsed | Target Elapsed | Base User/Sys | Target User/Sys | Base Ctx Switches | Target Ctx Switches |",
-                  "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
+                  "| Comparison | FPS Delta | Base Elapsed | Target Elapsed |",
+                  "|---|---:|---:|---:|",
               ])
 
               base = fps_by_state.get("base")
               target = fps_by_state.get("merged")
-              base_metrics = metrics_by_state.get("base", {})
-              target_metrics = metrics_by_state.get("merged", {})
 
               if base is None or target is None:
-                  lines.append(f"| main vs main+{branch_name} | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |")
+                  lines.append(f"| main vs main+{branch_name} | n/a | {elapsed_by_state.get('base', 'n/a')} | {elapsed_by_state.get('merged', 'n/a')} |")
                   lines.append("")
                   continue
 
               pct = ((target / base) - 1.0) * 100.0
               pct_sign = "+" if pct > 0 else ""
-
-              base_rss = base_metrics.get("rss_kb")
-              target_rss = target_metrics.get("rss_kb")
-              if base_rss is None or target_rss is None:
-                  memory_delta = "n/a"
-                  base_rss_text = "n/a"
-                  target_rss_text = "n/a"
-              else:
-                  rss_diff = target_rss - base_rss
-                  rss_pct = ((target_rss / base_rss) - 1.0) * 100.0 if base_rss else 0.0
-                  rss_pct_sign = "+" if rss_pct > 0 else ""
-                  memory_delta = f"{rss_diff:+d} KB ({rss_pct_sign}{rss_pct:.2f}%)"
-                  base_rss_text = f"{base_rss} KB"
-                  target_rss_text = f"{target_rss} KB"
-
-              base_ctx = "n/a"
-              target_ctx = "n/a"
-              if base_metrics.get("vol_cs") is not None and base_metrics.get("invol_cs") is not None:
-                  base_ctx = f"{base_metrics['vol_cs']}/{base_metrics['invol_cs']}"
-              if target_metrics.get("vol_cs") is not None and target_metrics.get("invol_cs") is not None:
-                  target_ctx = f"{target_metrics['vol_cs']}/{target_metrics['invol_cs']}"
-
-              lines.append(
-                  f"| main vs main+{branch_name} | {pct_sign}{pct:.2f}% | "
-                  f"{base_rss_text} | {target_rss_text} | {memory_delta} | "
-                  f"{base_metrics.get('elapsed', 'n/a')} | {target_metrics.get('elapsed', 'n/a')} | "
-                  f"{base_metrics.get('user_sec', 'n/a')}/{base_metrics.get('sys_sec', 'n/a')} | "
-                  f"{target_metrics.get('user_sec', 'n/a')}/{target_metrics.get('sys_sec', 'n/a')} | "
-                  f"{base_ctx} | {target_ctx} |"
-              )
+              lines.append(f"| main vs main+{branch_name} | {pct_sign}{pct:.2f}% | {elapsed_by_state.get('base', 'n/a')} | {elapsed_by_state.get('merged', 'n/a')} |")
               lines.append("")
 
           summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
