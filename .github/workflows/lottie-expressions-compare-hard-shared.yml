@@ -373,6 +373,23 @@ jobs:
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
+          function Get-RuntimeDllDir {
+            param([string]$BuildDir)
+
+            $candidates = @(
+              (Join-Path $repoRoot "$BuildDir\subprojects\thorvg-main\src"),
+              (Join-Path $repoRoot "$BuildDir\src")
+            )
+
+            foreach ($candidate in $candidates) {
+              if ((Test-Path (Join-Path $candidate 'thorvg-1.dll')) -or (Test-Path (Join-Path $candidate 'libthorvg-1.dll'))) {
+                return $candidate
+              }
+            }
+
+            return $candidates[0]
+          }
+
           function Run-Once {
             param(
               [string]$State,
@@ -384,11 +401,16 @@ jobs:
             $buildDir = "build-$State"
             $rawLog = "ci-report/raw_${platform}_${State}_${RunType}_${Iteration}.tmp"
             $finalLog = "ci-report/${platform}_${State}_${RunType}_${Iteration}.log"
+            $runtimeDllDir = Get-RuntimeDllDir -BuildDir $buildDir
+            $originalPath = $env:PATH
 
+            "" | Set-Content $rawLog
+            $env:PATH = "$runtimeDllDir;$originalPath"
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            & ".\$buildDir\src\LottieExpressions.exe" sw 0 "$Ticks" *>&1 | Tee-Object -FilePath $rawLog
+            & ".\$buildDir\src\LottieExpressions.exe" sw 0 "$Ticks" *>&1 | Tee-Object -FilePath $rawLog -Append
             $stopwatch.Stop()
             $status = $LASTEXITCODE
+            $env:PATH = $originalPath
             Get-Content $rawLog -Tail 30 | Set-Content $finalLog
             if ($status -ne 0) { exit $status }
 
@@ -476,6 +498,22 @@ jobs:
             meson compile -C "$build_dir"
           }
 
+          resolve_runtime_dir() {
+            build_dir="$1"
+            local candidate
+            for candidate in \
+              "${repo_root}/${build_dir}/subprojects/thorvg-main/src" \
+              "${repo_root}/${build_dir}/src"
+            do
+              if [ -f "${candidate}/thorvg-1.dll" ] || [ -f "${candidate}/libthorvg-1.dll" ]; then
+                printf '%s\n' "$candidate"
+                return 0
+              fi
+            done
+
+            printf '%s\n' "${repo_root}/${build_dir}/subprojects/thorvg-main/src"
+          }
+
           run_once() {
             state="$1"
             iteration="$2"
@@ -484,9 +522,11 @@ jobs:
             build_dir="build-${state}"
             raw_log="${repo_root}/ci-report/raw_${platform}_${state}_${run_type}_${iteration}.tmp"
             final_log="${repo_root}/ci-report/${platform}_${state}_${run_type}_${iteration}.log"
+            runtime_dir="$(resolve_runtime_dir "$build_dir")"
 
             start_ns="$(date +%s%N)"
-            "./${build_dir}/src/LottieExpressions.exe" sw 0 "$ticks" > "$raw_log" 2>&1
+            : > "$raw_log"
+            PATH="${runtime_dir}:$PATH" "./${build_dir}/src/LottieExpressions.exe" sw 0 "$ticks" > "$raw_log" 2>&1
             status=$?
             end_ns="$(date +%s%N)"
             tail -n 30 "$raw_log" > "$final_log"
