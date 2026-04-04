@@ -328,8 +328,8 @@ jobs:
           lines.append("")
 
           lines.extend([
-              "| Runner | Compiler | Compiler Path | Compiler Version | Target | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
-              "|---|---|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
+              "| Runner | Compiler | Target | Base TEXT | Base DATA | Base TEXT+DATA | Target TEXT | Target DATA | Target TEXT+DATA | Delta |",
+              "|---|---|---|---:|---:|---:|---:|---:|---:|---:|",
           ])
 
           all_keys = sorted(set(status_by_key) | set(size_by_key))
@@ -346,16 +346,31 @@ jobs:
               target = size_by_key.get(key, {}).get("merged")
               if run_status != "merged" or base is None or target is None:
                   lines.append(
-                      f"| {runner} | {compiler} | {compiler_path} | {compiler_version} | {target_arch} | "
+                      f"| {runner} | {compiler} | {target_arch} | "
                       "n/a | n/a | n/a | n/a | n/a | n/a | n/a |"
                   )
                   continue
 
               lines.append(
-                  f"| {runner} | {compiler} | {compiler_path} | {compiler_version} | {target_arch} | "
+                  f"| {runner} | {compiler} | {target_arch} | "
                   f"{base['text']} | {base['data']} | {base['total']} | "
                   f"{target['text']} | {target['data']} | {target['total']} | "
                   f"{format_size_delta(base['total'], target['total'])} |"
+              )
+
+          lines.append("")
+          lines.append("### Compiler Details")
+          lines.append("")
+          for key in all_keys:
+              status = status_by_key.get(key, {})
+              compiler = status.get("compiler", "n/a")
+              compiler_path = status.get("compiler_path", "n/a")
+              compiler_version = status.get("compiler_version", "n/a")
+              target_arch = status.get("target_arch", "n/a")
+              runner = "ubuntu-24.04-arm" if "arm64" in key else "ubuntu-24.04"
+              lines.append(
+                  f"- `{runner}` / `{target_arch}`: `{compiler}` from `{compiler_path}` "
+                  f"({compiler_version})"
               )
 
           summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
