@@ -1,12 +1,5 @@
-meson setup builddir-thorvg --wipe -Dthorvg_subproject=thorvg -Dthreads=true
-meson compile -C builddir-thorvg
+meson setup builddir-feature --wipe -Dthorvg_subproject=thorvg-feature -Dthreads=true --optimization=s --buildtype=release
+meson compile -C builddir-feature
 
-meson setup builddir-thorvg-nonthread --wipe -Dthorvg_subproject=thorvg -Dthreads=false
-meson compile -C builddir-thorvg-nonthread
-
-
-meson setup builddir-thorvg-main  --wipe -Dthorvg_subproject=thorvg-main -Dthreads=true
-meson compile -C builddir-thorvg-main
-
-meson setup builddir-thorvg-main-nonthread --wipe -Dthorvg_subproject=thorvg-main -Dthreads=false
-meson compile -C builddir-thorvg-main-nonthread
+meson setup builddir-main --wipe -Dthorvg_subproject=thorvg-main -Dthreads=true --optimization=s --buildtype=release
+meson compile -C builddir-main
