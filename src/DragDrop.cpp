@@ -29,43 +29,46 @@
 struct UserExample : tvgexam::Example
 {
     unique_ptr<tvg::Animation> animation;
-    tvg::Picture* picture = nullptr;
-    uint32_t dropTime = 0;
-
-    bool content(tvg::Canvas* canvas, uint32_t w, uint32_t h) override
-    {
-        //Background
-        auto shape = tvg::Shape::gen();
-        shape->appendRect(0, 0, w, h);
-        shape->fill(50, 50, 50);
-        canvas->add(shape);
-
-        return true;
-    }
+    uint32_t _w = 0, _h = 0;
 
     bool update(tvg::Canvas* canvas, uint32_t elapsed) override
     {
         if (!animation || animation->duration() <= 0) return false;
 
-        auto progress = tvgexam::progress(elapsed - dropTime, animation->duration());
+        auto progress = tvgexam::progress(elapsed, animation->duration());
         animation->frame(animation->totalFrame() * progress);
         canvas->update();
 
         return true;
     }
 
-    bool drop(tvg::Canvas* canvas, const char* path, uint32_t w, uint32_t h) override
+    bool content(tvg::Canvas* canvas, uint32_t w, uint32_t h) override
     {
-        //reset previous content
-        animation.reset();
-        picture = nullptr;
-        canvas->remove();
+        _w = w;
+        _h = h;
+
+        //The default font for fallback in case
+        tvg::Text::load(EXAMPLE_DIR"/font/PublicSans-Regular.ttf");
 
         //Background
         auto shape = tvg::Shape::gen();
         shape->appendRect(0, 0, w, h);
         shape->fill(50, 50, 50);
         canvas->add(shape);
+
+        return true;
+    }
+
+    bool drop(tvg::Canvas* canvas, const char* path, uint32_t w, uint32_t h) override
+    {
+        //remove previous picture
+        if (animation) {
+            canvas->remove(animation->picture());
+            animation.reset();
+        }
+
+        _w = w;
+        _h = h;
 
         auto len = strlen(path);
         if (len < 4) return false;
@@ -80,37 +83,29 @@ struct UserExample : tvgexam::Example
             return false;
         }
 
-        if (isLottie) {
-            animation = unique_ptr<tvg::Animation>(tvg::Animation::gen());
-            picture = animation->picture();
-        } else {
-            picture = tvg::Picture::gen();
-        }
+        animation = unique_ptr<tvg::Animation>(tvg::Animation::gen());
+        auto picture = animation->picture();
+        picture->origin(0.5f, 0.5f);
 
         if (!tvgexam::verify(picture->load(path))) {
-            if (!isLottie) tvg::Paint::rel(picture);
             animation.reset();
-            picture = nullptr;
             return false;
         }
 
-        //center the picture
+        //center the picture preserving its aspect ratio
         float pw, ph;
         picture->size(&pw, &ph);
 
         if (pw > 0 && ph > 0) {
             float scale = min(float(w) / pw, float(h) / ph) * 0.9f;
             picture->scale(scale);
-            picture->translate((w - pw * scale) * 0.5f, (h - ph * scale) * 0.5f);
+            picture->translate(w * 0.5f, h * 0.5f);
         }
 
-        if (isLottie) {
-            canvas->add(animation->picture());
-        } else {
-            canvas->add(picture);
-        }
+        canvas->add(animation->picture());
 
-        if (isLottie) dropTime = elapsed;
+        //reset elapsed so animation starts from frame 0
+        elapsed = 0;
 
         cout << "Loaded: " << path << endl;
 
@@ -127,5 +122,5 @@ struct UserExample : tvgexam::Example
 
 int main(int argc, char **argv)
 {
-    return tvgexam::main(new UserExample, argc, argv, true, 800, 800, 0, false);
+    return tvgexam::main(new UserExample, argc, argv, false, 800, 800, 0, false);
 }

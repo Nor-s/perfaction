@@ -82,7 +82,6 @@ source_file = [
     'Transform.cpp',
     'TrimPath.cpp',
     'Viewport.cpp',
-    'DragDrop.cpp'
 ]
 
 thorvg_inc = thorvg_proj.get_variable('thorvg_inc')
@@ -98,7 +97,8 @@ if fs.is_file(join_paths(meson.current_source_dir(), '..', 'subprojects', thorvg
         'LottieExtension.cpp',
         'LottieInteraction.cpp',
         'LottieBigSize.cpp',
-        'LottieTweening.cpp'
+        'LottieTweening.cpp',
+        'DragDrop.cpp'
     ]
     message('ThorVG Lottie found. Enabled Lottie examples.')
 else
