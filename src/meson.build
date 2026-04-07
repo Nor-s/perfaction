@@ -81,7 +81,8 @@ source_file = [
     'TextMetrics.cpp',
     'Transform.cpp',
     'TrimPath.cpp',
-    'Viewport.cpp'
+    'Viewport.cpp',
+    'DragDrop.cpp'
 ]
 
 thorvg_inc = thorvg_proj.get_variable('thorvg_inc')

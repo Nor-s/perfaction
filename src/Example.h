@@ -74,6 +74,7 @@ namespace tvgexam
 		virtual bool clickup(tvg::Canvas* canvas, int32_t x, int32_t y) { return false; }
 		virtual bool keydown(tvg::Canvas* canvas, int32_t key) { return false; }
 		virtual bool motion(tvg::Canvas* canvas, int32_t x, int32_t y) { return false; }
+		virtual bool drop(tvg::Canvas* canvas, const char* path, uint32_t w, uint32_t h) { return false; }
 		virtual void populate(const char* path) {}
 		virtual ~Example() {}
 
@@ -278,6 +279,11 @@ namespace tvgexam
 					}
 					case SDL_MOUSEMOTION: {
 						needDraw |= example->motion(canvas, event.button.x, event.button.y);
+						break;
+					}
+					case SDL_DROPFILE: {
+						needDraw |= example->drop(canvas, event.drop.file, width, height);
+						SDL_free(event.drop.file);
 						break;
 					}
 					case SDL_WINDOWEVENT: {

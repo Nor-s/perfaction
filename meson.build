@@ -1,7 +1,7 @@
 project('thorvg.example',
   'cpp',
   version: '1.0',
-  default_options: ['buildtype=debugoptimized', 'cpp_std=c++14', 'optimization=2',  'b_ndebug=true','b_sanitize=none', 'default_library=static'],
+  default_options: ['buildtype=debugoptimized', 'cpp_std=c++14', 'optimization=s',  'b_ndebug=true','b_sanitize=none', 'default_library=static'],
   license : 'MIT')
 
 
@@ -20,7 +20,7 @@ thorvg_linkage = get_option('thorvg_linkage')
 thorvg_proj = subproject(thorvg_subproject, default_options: [
   'buildtype=' + get_option('buildtype'),
   'optimization=' + get_option('optimization'),
-  'engines=sw,gl',
+  'engines=cpu,gl',
   'loaders=all',
   'savers=all',
   'bindings=capi',
@@ -28,6 +28,7 @@ thorvg_proj = subproject(thorvg_subproject, default_options: [
   'b_sanitize=none',
   'threads=' + (threads_opt ? 'true' : 'false'),
   'default_library=' + thorvg_linkage,
+  'b_lto=true'
 #   'log=true'
 ])
 thorvg_dep = thorvg_proj.get_variable('thorvg_dep')
