@@ -28,7 +28,6 @@ thorvg_proj = subproject(thorvg_subproject, default_options: [
   'b_sanitize=none',
   'threads=' + (threads_opt ? 'true' : 'false'),
   'default_library=' + thorvg_linkage,
-  'b_lto=true'
 #   'log=true'
 ])
 thorvg_dep = thorvg_proj.get_variable('thorvg_dep')
