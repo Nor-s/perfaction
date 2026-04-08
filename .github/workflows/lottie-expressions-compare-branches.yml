@@ -499,9 +499,6 @@ jobs:
           fi
 
           threads_meson="true"
-          if [ "$thread_count" = "0" ]; then
-            threads_meson="false"
-          fi
 
           parse_fps() {
             log_path="$1"
