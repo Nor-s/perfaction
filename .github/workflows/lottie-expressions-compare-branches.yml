@@ -309,12 +309,13 @@ jobs:
             iteration="$2"
             run_type="$3"
             ticks="$4"
+            thread_arg="$5"
             build_dir="build-${state}"
             raw_log="${repo_root}/ci-report/raw_${platform}_${state}_${run_type}_${iteration}.tmp"
             final_log="${repo_root}/ci-report/${platform}_${state}_${run_type}_${iteration}.log"
             timing_file="${repo_root}/ci-report/${platform}_${state}_${run_type}_${iteration}.time"
 
-            /usr/bin/time -p -o "$timing_file" "./${build_dir}/src/LottieExpressions" sw "$thread_count" "$ticks" > "$raw_log" 2>&1
+            /usr/bin/time -p -o "$timing_file" "./${build_dir}/src/LottieExpressions" sw "$thread_arg" "$ticks" > "$raw_log" 2>&1
             status=$?
             tail -n 30 "$raw_log" > "$final_log"
             [ "$status" -eq 0 ] || return "$status"
@@ -337,9 +338,9 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           # Fetch both branches
-          git fetch origin "refs/heads/${branch_a}" "refs/heads/${branch_b}"
-          commit_a="$(git rev-parse "origin/${branch_a}^{commit}")"
-          commit_b="$(git rev-parse "origin/${branch_b}^{commit}")"
+          git fetch origin "+refs/heads/${branch_a}:refs/remotes/origin/${branch_a}" "+refs/heads/${branch_b}:refs/remotes/origin/${branch_b}"
+          commit_a="$(git rev-parse "origin/${branch_a}")"
+          commit_b="$(git rev-parse "origin/${branch_b}")"
 
           # Find common ancestor and collect commits
           merge_base="$(git merge-base "$commit_a" "$commit_b" 2>/dev/null || echo "")"
@@ -361,13 +362,13 @@ jobs:
           build_state branch_b
 
           # Warmup
-          run_once branch_a 0 warmup 1000
-          run_once branch_b 0 warmup 1000
+          run_once branch_a 0 warmup 1000 0
+          run_once branch_b 0 warmup 1000 "$thread_count"
 
           # Measured runs
           for iteration in $(seq 1 "$loop_count"); do
-            run_once branch_a "$iteration" measure "$tick_count"
-            run_once branch_b "$iteration" measure "$tick_count"
+            run_once branch_a "$iteration" measure "$tick_count" 0
+            run_once branch_b "$iteration" measure "$tick_count" "$thread_count"
           done
 
       - name: Compare LottieExpressions (Windows MSVC)
@@ -406,7 +407,8 @@ jobs:
               [string]$State,
               [int]$Iteration,
               [string]$RunType,
-              [int]$Ticks
+              [int]$Ticks,
+              [string]$ThreadArg
             )
 
             $buildDir = "build-$State"
@@ -414,7 +416,7 @@ jobs:
             $finalLog = "ci-report/${platform}_${State}_${RunType}_${Iteration}.log"
 
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            & ".\$buildDir\src\LottieExpressions.exe" sw "$threadCount" "$Ticks" *>&1 | Tee-Object -FilePath $rawLog
+            & ".\$buildDir\src\LottieExpressions.exe" sw "$ThreadArg" "$Ticks" *>&1 | Tee-Object -FilePath $rawLog
             $stopwatch.Stop()
             $status = $LASTEXITCODE
             Get-Content $rawLog -Tail 30 | Set-Content $finalLog
@@ -446,9 +448,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git fetch origin "refs/heads/$branchA" "refs/heads/$branchB"
-          $commitA = (git rev-parse "origin/${branchA}^{commit}").Trim()
-          $commitB = (git rev-parse "origin/${branchB}^{commit}").Trim()
+          git fetch origin "+refs/heads/${branchA}:refs/remotes/origin/${branchA}" "+refs/heads/${branchB}:refs/remotes/origin/${branchB}"
+          $commitA = (git rev-parse "origin/${branchA}").Trim()
+          $commitB = (git rev-parse "origin/${branchB}").Trim()
 
           $mergeBase = git merge-base $commitA $commitB 2>$null
           if ($mergeBase) {
@@ -469,13 +471,13 @@ jobs:
           Build-State -State branch_b
 
           # Warmup
-          Run-Once -State branch_a -Iteration 0 -RunType warmup -Ticks 1000
-          Run-Once -State branch_b -Iteration 0 -RunType warmup -Ticks 1000
+          Run-Once -State branch_a -Iteration 0 -RunType warmup -Ticks 1000 -ThreadArg "0"
+          Run-Once -State branch_b -Iteration 0 -RunType warmup -Ticks 1000 -ThreadArg "$threadCount"
 
           # Measured runs
           for ($iteration = 1; $iteration -le $loopCount; $iteration++) {
-            Run-Once -State branch_a -Iteration $iteration -RunType measure -Ticks $tickCount
-            Run-Once -State branch_b -Iteration $iteration -RunType measure -Ticks $tickCount
+            Run-Once -State branch_a -Iteration $iteration -RunType measure -Ticks $tickCount -ThreadArg "0"
+            Run-Once -State branch_b -Iteration $iteration -RunType measure -Ticks $tickCount -ThreadArg "$threadCount"
           }
 
       - name: Compare LottieExpressions (Windows MSYS2)
@@ -522,12 +524,13 @@ jobs:
             iteration="$2"
             run_type="$3"
             ticks="$4"
+            thread_arg="$5"
             build_dir="build-${state}"
             raw_log="${repo_root}/ci-report/raw_${platform}_${state}_${run_type}_${iteration}.tmp"
             final_log="${repo_root}/ci-report/${platform}_${state}_${run_type}_${iteration}.log"
 
             start_ns="$(date +%s%N)"
-            "./${build_dir}/src/LottieExpressions.exe" sw "$thread_count" "$ticks" > "$raw_log" 2>&1
+            "./${build_dir}/src/LottieExpressions.exe" sw "$thread_arg" "$ticks" > "$raw_log" 2>&1
             status=$?
             end_ns="$(date +%s%N)"
             tail -n 30 "$raw_log" > "$final_log"
@@ -550,9 +553,9 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git fetch origin "refs/heads/${branch_a}" "refs/heads/${branch_b}"
-          commit_a="$(git rev-parse "origin/${branch_a}^{commit}")"
-          commit_b="$(git rev-parse "origin/${branch_b}^{commit}")"
+          git fetch origin "+refs/heads/${branch_a}:refs/remotes/origin/${branch_a}" "+refs/heads/${branch_b}:refs/remotes/origin/${branch_b}"
+          commit_a="$(git rev-parse "origin/${branch_a}")"
+          commit_b="$(git rev-parse "origin/${branch_b}")"
 
           merge_base="$(git merge-base "$commit_a" "$commit_b" 2>/dev/null || echo "")"
           if [ -n "$merge_base" ]; then
@@ -573,13 +576,13 @@ jobs:
           build_state branch_b
 
           # Warmup
-          run_once branch_a 0 warmup 1000
-          run_once branch_b 0 warmup 1000
+          run_once branch_a 0 warmup 1000 0
+          run_once branch_b 0 warmup 1000 "$thread_count"
 
           # Measured runs
           for iteration in $(seq 1 "$loop_count"); do
-            run_once branch_a "$iteration" measure "$tick_count"
-            run_once branch_b "$iteration" measure "$tick_count"
+            run_once branch_a "$iteration" measure "$tick_count" 0
+            run_once branch_b "$iteration" measure "$tick_count" "$thread_count"
           done
 
       - name: Upload Compare Artifacts
