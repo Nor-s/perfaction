@@ -1,7 +1,7 @@
 project('thorvg.example',
   'cpp',
   version: '1.0',
-  default_options: ['buildtype=release', 'cpp_std=c++14', 'optimization=s', 'b_sanitize=none', 'default_library=static'],
+  default_options: ['buildtype=minsize', 'cpp_std=c++14', 'optimization=s', 'b_sanitize=none', 'default_library=static'],
   license : 'MIT')
 
 

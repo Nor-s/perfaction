@@ -292,7 +292,7 @@ jobs:
             state="$1"
             build_dir="build-${state}"
             meson setup --wipe "$build_dir" \
-              -Dbuildtype=release \
+              -Dbuildtype=minsize \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
               -Dthreads=true
@@ -386,7 +386,7 @@ jobs:
           function Build-State {
             param([string]$State)
             $buildDir = "build-$State"
-            meson setup --wipe $buildDir "-Dbuildtype=release" "-Doptimization=s" "-Dthorvg_subproject=thorvg-main" "-Dthreads=true"
+            meson setup --wipe $buildDir "-Dbuildtype=minsize" "-Doptimization=s" "-Dthorvg_subproject=thorvg-main" "-Dthreads=true"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
             meson compile -C $buildDir
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -497,7 +497,7 @@ jobs:
             state="$1"
             build_dir="build-${state}"
             meson setup --wipe "$build_dir" \
-              -Dbuildtype=release \
+              -Dbuildtype=minsize \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
               -Dthreads=true

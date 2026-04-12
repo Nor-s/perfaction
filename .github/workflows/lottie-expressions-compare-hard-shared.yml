@@ -284,7 +284,7 @@ jobs:
             state="$1"
             build_dir="build-${state}"
             meson setup --wipe "$build_dir" \
-              -Dbuildtype=release \
+              -Dbuildtype=minsize \
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
               -Dthorvg_linkage=shared \

@@ -142,7 +142,7 @@ jobs:
           subproject_dir="subprojects/thorvg-main"
 
           meson_args=(
-            -Dbuildtype=release
+            -Dbuildtype=minsize
             -Doptimization=s
             -Dengines=cpu
             -Dloaders=all
