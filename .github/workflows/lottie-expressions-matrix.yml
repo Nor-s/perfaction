@@ -1,20 +1,13 @@
-name: LottieExpressions Matrix
-run-name: Matrix (${{ inputs.platform }}, tick=${{ inputs.tick_count }})
+name: LottieExpressions Compare
+run-name: Compare (main vs ${{ inputs.branch }}) (tick=${{ inputs.tick_count }})
 
 on:
   workflow_dispatch:
     inputs:
-      platform:
-        description: Platform to run
+      branch:
+        description: ThorVG branch to merge into main locally
         required: true
-        default: all
-        type: choice
-        options:
-          - all
-          - ubuntu
-          - macos
-          - windows-msvc
-          - windows-msys2
+        type: string
       tick_count:
         description: Tick count for LottieExpressions exit
         required: true
@@ -34,21 +27,124 @@ concurrency:
 
 jobs:
   build:
-    name: ${{ matrix.platform }}
+    name: ${{ matrix.platform }} / ${{ matrix.variant.name }}
     runs-on: ${{ matrix.runs_on }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(
-        github.event.inputs.platform == 'ubuntu' &&
-        '{"include":[{"platform":"ubuntu","runs_on":"ubuntu-latest"}]}' ||
-        github.event.inputs.platform == 'macos' &&
-        '{"include":[{"platform":"macos","runs_on":"macos-latest"}]}' ||
-        github.event.inputs.platform == 'windows-msvc' &&
-        '{"include":[{"platform":"windows-msvc","runs_on":"windows-latest"}]}' ||
-        github.event.inputs.platform == 'windows-msys2' &&
-        '{"include":[{"platform":"windows-msys2","runs_on":"windows-latest"}]}' ||
-        '{"include":[{"platform":"ubuntu","runs_on":"ubuntu-latest"},{"platform":"macos","runs_on":"macos-latest"},{"platform":"windows-msvc","runs_on":"windows-latest"},{"platform":"windows-msys2","runs_on":"windows-latest"}]}'
-        ) }}
+      matrix:
+        include:
+          - platform: ubuntu
+            runs_on: ubuntu-latest
+            variant:
+              name: thorvg-main / threads=false / sw=0
+              subproject: thorvg-main
+              threads: 'false'
+              sw: '0'
+          - platform: ubuntu
+            runs_on: ubuntu-latest
+            variant:
+              name: thorvg-nors / threads=false / sw=0
+              subproject: thorvg-nors
+              threads: 'false'
+              sw: '0'
+          - platform: ubuntu
+            runs_on: ubuntu-latest
+            variant:
+              name: thorvg-nors / threads=true / sw=0
+              subproject: thorvg-nors
+              threads: 'true'
+              sw: '0'
+          - platform: ubuntu
+            runs_on: ubuntu-latest
+            variant:
+              name: thorvg-nors / threads=true / sw=4
+              subproject: thorvg-nors
+              threads: 'true'
+              sw: '4'
+          - platform: macos
+            runs_on: macos-latest
+            variant:
+              name: thorvg-main / threads=false / sw=0
+              subproject: thorvg-main
+              threads: 'false'
+              sw: '0'
+          - platform: macos
+            runs_on: macos-latest
+            variant:
+              name: thorvg-nors / threads=false / sw=0
+              subproject: thorvg-nors
+              threads: 'false'
+              sw: '0'
+          - platform: macos
+            runs_on: macos-latest
+            variant:
+              name: thorvg-nors / threads=true / sw=0
+              subproject: thorvg-nors
+              threads: 'true'
+              sw: '0'
+          - platform: macos
+            runs_on: macos-latest
+            variant:
+              name: thorvg-nors / threads=true / sw=4
+              subproject: thorvg-nors
+              threads: 'true'
+              sw: '4'
+          - platform: windows-msvc
+            runs_on: windows-latest
+            variant:
+              name: thorvg-main / threads=false / sw=0
+              subproject: thorvg-main
+              threads: 'false'
+              sw: '0'
+          - platform: windows-msvc
+            runs_on: windows-latest
+            variant:
+              name: thorvg-nors / threads=false / sw=0
+              subproject: thorvg-nors
+              threads: 'false'
+              sw: '0'
+          - platform: windows-msvc
+            runs_on: windows-latest
+            variant:
+              name: thorvg-nors / threads=true / sw=0
+              subproject: thorvg-nors
+              threads: 'true'
+              sw: '0'
+          - platform: windows-msvc
+            runs_on: windows-latest
+            variant:
+              name: thorvg-nors / threads=true / sw=4
+              subproject: thorvg-nors
+              threads: 'true'
+              sw: '4'
+          - platform: windows-msys2
+            runs_on: windows-latest
+            variant:
+              name: thorvg-main / threads=false / sw=0
+              subproject: thorvg-main
+              threads: 'false'
+              sw: '0'
+          - platform: windows-msys2
+            runs_on: windows-latest
+            variant:
+              name: thorvg-nors / threads=false / sw=0
+              subproject: thorvg-nors
+              threads: 'false'
+              sw: '0'
+          - platform: windows-msys2
+            runs_on: windows-latest
+            variant:
+              name: thorvg-nors / threads=true / sw=0
+              subproject: thorvg-nors
+              threads: 'true'
+              sw: '0'
+          - platform: windows-msys2
+            runs_on: windows-latest
+            variant:
+              name: thorvg-nors / threads=true / sw=4
+              subproject: thorvg-nors
+              threads: 'true'
+              sw: '4'
 
     steps:
       - uses: actions/checkout@v5
@@ -194,7 +290,6 @@ jobs:
               if ($attempt -eq $maxAttempts) {
                 exit $LASTEXITCODE
               }
-              Write-Host "vcpkg install failed on attempt $attempt/$maxAttempts. Retrying after backoff..."
               Start-Sleep -Seconds (15 * $attempt)
             }
           } else {
@@ -224,101 +319,279 @@ jobs:
         run: |
           mkdir -p ci-report
 
-      - name: Build and Run Variants (POSIX)
+      - name: Detect Available Cores (POSIX)
         if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
         shell: bash
         run: |
-          setup_args=(-Dbuildtype=release -Doptimization=s)
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            cores="$(sysctl -n hw.ncpu)"
+          else
+            cores="$(nproc)"
+          fi
+          printf 'Available cores on %s: %s\n' "${{ matrix.platform }}" "$cores"
+          printf '%s' "$cores" > "ci-report/${{ matrix.platform }}_cores.txt"
 
-          run_case() {
-            subproject="$1"
-            threads="$2"
-            threadcnt="$3"
-            build_dir="build-${subproject}-${threads}"
-            raw_log="ci-report/raw_${{ matrix.platform }}_${subproject}_${threads}_sw_${threadcnt}.tmp"
-            final_log="ci-report/${{ matrix.platform }}_${subproject}_${threads}_sw_${threadcnt}.log"
+      - name: Detect Available Cores (Windows MSVC)
+        if: matrix.platform == 'windows-msvc'
+        shell: powershell
+        run: |
+          $cores = [Environment]::ProcessorCount
+          Write-Host "Available cores on windows-msvc: $cores"
+          [IO.File]::WriteAllText("ci-report/windows-msvc_cores.txt", "$cores")
 
-            meson setup --wipe "$build_dir" "${setup_args[@]}" -Dthorvg_subproject="$subproject" -Dthreads="$threads"
+      - name: Detect Available Cores (Windows MSYS2)
+        if: matrix.platform == 'windows-msys2'
+        shell: msys2 {0}
+        run: |
+          cores="$(nproc)"
+          printf 'Available cores on windows-msys2: %s\n' "$cores"
+          printf '%s' "$cores" > "ci-report/windows-msys2_cores.txt"
+
+      - name: Compare LottieExpressions (POSIX)
+        if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
+        shell: bash
+        run: |
+          repo_root="$PWD"
+          target_branch="${{ github.event.inputs.branch }}"
+          subproject_dir="subprojects/${{ matrix.variant.subproject }}"
+          platform="${{ matrix.platform }}"
+          subproject="${{ matrix.variant.subproject }}"
+          threads="${{ matrix.variant.threads }}"
+          sw="${{ matrix.variant.sw }}"
+
+          collect_perf() {
+            state="$1"
+            build_dir="build-${state}"
+            raw_log="${repo_root}/ci-report/raw_${platform}_${subproject}_${threads}_${state}_sw_${sw}.tmp"
+            final_log="${repo_root}/ci-report/${platform}_${subproject}_${threads}_${state}_sw_${sw}.log"
+            metrics_file="${repo_root}/ci-report/${platform}_${subproject}_${threads}_${state}_sw_${sw}_metrics.txt"
+
+            meson setup --wipe "$build_dir" \
+              -Dbuildtype=release \
+              -Doptimization=s \
+              -Dthorvg_subproject="$subproject" \
+              -Dthreads="$threads"
             meson compile -C "$build_dir"
-            "./${build_dir}/src/LottieExpressions" sw "$threadcnt" "${{ inputs.tick_count }}" > "$raw_log" 2>&1
-            status=$?
+
+            if [ "$platform" = "ubuntu" ]; then
+              /usr/bin/time -v -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw "$sw" "${{ inputs.tick_count }}" > "$raw_log" 2>&1
+              status=$?
+              python3 -c "import re, sys, pathlib; state=sys.argv[1]; metrics_path=pathlib.Path(sys.argv[2]); out_path=pathlib.Path(sys.argv[3]); text=metrics_path.read_text(encoding='utf-8', errors='replace'); patterns={'rss_kb': r'Maximum resident set size \\(kbytes\\):\\s*(\\d+)', 'user_sec': r'User time \\(seconds\\):\\s*([0-9.]+)', 'sys_sec': r'System time \\(seconds\\):\\s*([0-9.]+)', 'elapsed': r'Elapsed \\(wall clock\\) time \\(h:mm:ss or m:ss\\):\\s*([0-9:.]+)', 'vol_cs': r'Voluntary context switches:\\s*(\\d+)', 'invol_cs': r'Involuntary context switches:\\s*(\\d+)'}; extract=lambda key: (re.search(patterns[key], text).group(1) if re.search(patterns[key], text) else ''); elapsed_raw=extract('elapsed'); elapsed=''; parts=elapsed_raw.split(':') if elapsed_raw else []; elapsed=(f'{sum(float(part) * factor for part, factor in zip(parts, [3600, 60, 1][-len(parts):])):.3f}s' if parts else ''); values=[state, extract('rss_kb'), extract('user_sec'), extract('sys_sec'), elapsed, extract('vol_cs'), extract('invol_cs')]; out_path.open('a', encoding='utf-8').write('\\t'.join(values)+'\\n')" "$state" "$metrics_file" "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_runtime_metrics.tsv"
+              python3 -c "import re, sys, pathlib; state=sys.argv[1]; metrics_path=pathlib.Path(sys.argv[2]); out_path=pathlib.Path(sys.argv[3]); text=metrics_path.read_text(encoding='utf-8', errors='replace'); m=re.search(r'Elapsed \\(wall clock\\) time \\(h:mm:ss or m:ss\\):\\s*([0-9:.]+)', text); elapsed='n/a'; raw=m.group(1) if m else ''; parts=raw.split(':') if raw else []; elapsed=(f'{sum(float(part) * factor for part, factor in zip(parts, [3600, 60, 1][-len(parts):])):.3f}s' if parts else 'n/a'); out_path.open('a', encoding='utf-8').write(f'{state}\\t{elapsed}\\n')" "$state" "$metrics_file" "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_elapsed_metrics.tsv"
+            else
+              /usr/bin/time -p -o "$metrics_file" "./${build_dir}/src/LottieExpressions" sw "$sw" "${{ inputs.tick_count }}" > "$raw_log" 2>&1
+              status=$?
+              elapsed="$(awk '/^real / {print $2 "s"}' "$metrics_file" | head -n 1)"
+              printf '%s\t%s\n' "$state" "${elapsed:-n/a}" >> "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_elapsed_metrics.tsv"
+            fi
+
             tail -n 30 "$raw_log" > "$final_log"
             return $status
           }
 
-          run_case thorvg-main false 0
-          run_case thorvg-nors false 0
-          run_case thorvg-nors true 0
-          run_case thorvg-nors true 4
+          {
+            printf 'branch\t%s\n' "$target_branch"
+            printf 'subproject\t%s\n' "$subproject"
+            printf 'threads\t%s\n' "$threads"
+            printf 'sw\t%s\n' "$sw"
+          } > "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+          : > "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_runtime_metrics.tsv"
+          : > "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_elapsed_metrics.tsv"
+          : > "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_feature_commits.txt"
 
-      - name: Build and Run Variants (Windows MSVC)
+          pushd "$subproject_dir" > /dev/null
+          main_commit="$(git rev-parse HEAD^{commit})"
+          if [ "$target_branch" = "main" ]; then
+            feature_commit="$main_commit"
+          else
+            git fetch origin "refs/heads/${target_branch}"
+            feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout --detach "${main_commit}"
+          popd > /dev/null
+          collect_perf base
+
+          if [ "$target_branch" = "main" ]; then
+            printf 'status\tmerged\n' >> "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+          else
+            pushd "$subproject_dir" > /dev/null
+            git switch -C ci-merge-check "${main_commit}"
+            if ! git merge --no-commit --no-ff "${feature_commit}"; then
+              printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+              git merge --abort || true
+              popd > /dev/null
+              exit 1
+            fi
+            printf 'status\tmerged\n' >> "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+            git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_feature_commits.txt" || true
+            popd > /dev/null
+          fi
+
+          collect_perf merged
+
+      - name: Compare LottieExpressions (Windows MSVC)
         if: matrix.platform == 'windows-msvc'
         shell: powershell
         run: |
-          $setupArgs = @("-Dbuildtype=release", "-Doptimization=s")
+          $repoRoot = $PWD.Path
+          $targetBranch = "${{ github.event.inputs.branch }}"
+          $subproject = "${{ matrix.variant.subproject }}"
+          $threads = "${{ matrix.variant.threads }}"
+          $sw = "${{ matrix.variant.sw }}"
+          $subprojectDir = "subprojects/$subproject"
+          $platform = "${{ matrix.platform }}"
 
-          function Invoke-Case {
-            param(
-              [string]$Subproject,
-              [string]$Threads,
-              [string]$ThreadCnt
-            )
+          function Invoke-Perf {
+            param([string]$State)
 
-            $buildDir = "build-$Subproject-$Threads"
-            $rawLog = "ci-report/raw_${{ matrix.platform }}_${Subproject}_${Threads}_sw_${ThreadCnt}.tmp"
-            $finalLog = "ci-report/${{ matrix.platform }}_${Subproject}_${Threads}_sw_${ThreadCnt}.log"
+            $buildDir = "build-$State"
+            $rawLog = "ci-report/raw_${platform}_${subproject}_${threads}_${State}_sw_${sw}.tmp"
+            $finalLog = "ci-report/${platform}_${subproject}_${threads}_${State}_sw_${sw}.log"
 
-            meson setup --wipe $buildDir @setupArgs "-Dthorvg_subproject=$Subproject" "-Dthreads=$Threads"
+            meson setup --wipe $buildDir "-Dbuildtype=release" "-Doptimization=s" "-Dthorvg_subproject=$subproject" "-Dthreads=$threads"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
             meson compile -C $buildDir
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-            & ".\$buildDir\src\LottieExpressions.exe" sw $ThreadCnt "${{ inputs.tick_count }}" *>&1 | Tee-Object -FilePath $rawLog
+            $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+            & ".\$buildDir\src\LottieExpressions.exe" sw "$sw" "${{ inputs.tick_count }}" *>&1 | Tee-Object -FilePath $rawLog
+            $stopwatch.Stop()
             $status = $LASTEXITCODE
+            $elapsed = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:F3}s", $stopwatch.Elapsed.TotalSeconds)
+            "$State`t$elapsed" | Add-Content "ci-report/${platform}_${subproject}_${threads}_sw_${sw}_elapsed_metrics.tsv"
             Get-Content $rawLog -Tail 30 | Set-Content $finalLog
             if ($status -ne 0) { exit $status }
           }
 
-          Invoke-Case -Subproject thorvg-main -Threads false -ThreadCnt 0
-          Invoke-Case -Subproject thorvg-nors -Threads false -ThreadCnt 0
-          Invoke-Case -Subproject thorvg-nors -Threads true -ThreadCnt 0
-          Invoke-Case -Subproject thorvg-nors -Threads true -ThreadCnt 4
+          @(
+            "branch`t$targetBranch"
+            "subproject`t$subproject"
+            "threads`t$threads"
+            "sw`t$sw"
+          ) | Set-Content "ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+          "" | Set-Content "ci-report/${platform}_${subproject}_${threads}_sw_${sw}_elapsed_metrics.tsv"
+          "" | Set-Content "ci-report/${platform}_${subproject}_${threads}_sw_${sw}_feature_commits.txt"
+          Set-Location $subprojectDir
+          $mainCommit = (git rev-parse "HEAD^{commit}").Trim()
+          if ($targetBranch -eq "main") {
+            $featureCommit = $mainCommit
+          } else {
+            git fetch origin "refs/heads/$targetBranch"
+            $featureCommit = (git rev-parse "FETCH_HEAD^{commit}").Trim()
+          }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --detach $mainCommit
+          Set-Location $repoRoot
+          Invoke-Perf -State base
 
-      - name: Build and Run Variants (Windows MSYS2)
+          if ($targetBranch -eq "main") {
+            "status`tmerged" | Add-Content "$repoRoot/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+          } else {
+            Set-Location $subprojectDir
+            git checkout -B ci-merge-check $mainCommit
+            git merge --no-commit --no-ff $featureCommit
+            if ($LASTEXITCODE -ne 0) {
+              "status`tmerge-conflict" | Add-Content "$repoRoot/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+              git merge --abort
+              exit $LASTEXITCODE
+            }
+            "status`tmerged" | Add-Content "$repoRoot/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+            git log --oneline --no-merges "$mainCommit..$featureCommit" | Set-Content "$repoRoot/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_feature_commits.txt"
+            Set-Location $repoRoot
+          }
+          Invoke-Perf -State merged
+
+      - name: Compare LottieExpressions (Windows MSYS2)
         if: matrix.platform == 'windows-msys2'
         shell: msys2 {0}
         run: |
-          setup_args=(-Dbuildtype=release -Doptimization=s)
+          repo_root="$PWD"
+          target_branch="${{ github.event.inputs.branch }}"
+          subproject="${{ matrix.variant.subproject }}"
+          threads="${{ matrix.variant.threads }}"
+          sw="${{ matrix.variant.sw }}"
+          subproject_dir="subprojects/${subproject}"
+          platform="${{ matrix.platform }}"
 
-          run_case() {
-            subproject="$1"
-            threads="$2"
-            threadcnt="$3"
-            build_dir="build-${subproject}-${threads}"
-            raw_log="ci-report/raw_${{ matrix.platform }}_${subproject}_${threads}_sw_${threadcnt}.tmp"
-            final_log="ci-report/${{ matrix.platform }}_${subproject}_${threads}_sw_${threadcnt}.log"
+          collect_perf() {
+            state="$1"
+            build_dir="build-${state}"
+            raw_log="${repo_root}/ci-report/raw_${platform}_${subproject}_${threads}_${state}_sw_${sw}.tmp"
+            final_log="${repo_root}/ci-report/${platform}_${subproject}_${threads}_${state}_sw_${sw}.log"
 
-            meson setup --wipe "$build_dir" "${setup_args[@]}" -Dthorvg_subproject="$subproject" -Dthreads="$threads"
+            meson setup --wipe "$build_dir" \
+              -Dbuildtype=release \
+              -Doptimization=s \
+              -Dthorvg_subproject="$subproject" \
+              -Dthreads="$threads"
             meson compile -C "$build_dir"
-            "./${build_dir}/src/LottieExpressions.exe" sw "$threadcnt" "${{ inputs.tick_count }}" > "$raw_log" 2>&1
+            start_ns="$(date +%s%N)"
+            "./${build_dir}/src/LottieExpressions.exe" sw "$sw" "${{ inputs.tick_count }}" > "$raw_log" 2>&1
             status=$?
+            end_ns="$(date +%s%N)"
+            elapsed="$(awk -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf "%.3fs", (end - start) / 1000000000 }')"
+            printf '%s\t%s\n' "$state" "$elapsed" >> "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_elapsed_metrics.tsv"
             tail -n 30 "$raw_log" > "$final_log"
             return $status
           }
 
-          run_case thorvg-main false 0
-          run_case thorvg-nors false 0
-          run_case thorvg-nors true 0
-          run_case thorvg-nors true 4
+          {
+            printf 'branch\t%s\n' "$target_branch"
+            printf 'subproject\t%s\n' "$subproject"
+            printf 'threads\t%s\n' "$threads"
+            printf 'sw\t%s\n' "$sw"
+          } > "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+          : > "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_runtime_metrics.tsv"
+          : > "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_elapsed_metrics.tsv"
+          : > "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_feature_commits.txt"
 
-      - name: Upload Lottie logs
+          pushd "$subproject_dir" > /dev/null
+          main_commit="$(git rev-parse HEAD^{commit})"
+          if [ "$target_branch" = "main" ]; then
+            feature_commit="$main_commit"
+          else
+            git fetch origin "refs/heads/${target_branch}"
+            feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          git checkout --detach "${main_commit}"
+          popd > /dev/null
+          collect_perf base
+
+          if [ "$target_branch" = "main" ]; then
+            printf 'status\tmerged\n' >> "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+          else
+            pushd "$subproject_dir" > /dev/null
+            git switch -C ci-merge-check "${main_commit}"
+            if ! git merge --no-commit --no-ff "${feature_commit}"; then
+              printf 'status\tmerge-conflict\n' >> "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+              git merge --abort || true
+              popd > /dev/null
+              exit 1
+            fi
+            printf 'status\tmerged\n' >> "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_merge_status.tsv"
+            git log --oneline --no-merges "${main_commit}..${feature_commit}" > "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_feature_commits.txt" || true
+            popd > /dev/null
+          fi
+
+          collect_perf merged
+
+      - name: Upload Compare Artifacts
         if: always()
         uses: actions/upload-artifact@v6
         with:
-          name: lottie-logs-${{ matrix.platform }}
+          name: lottie-expressions-compare-${{ matrix.platform }}-${{ matrix.variant.subproject }}-${{ matrix.variant.threads }}-sw${{ matrix.variant.sw }}
           path: |
             ci-report/*.log
+            ci-report/*.tsv
+            ci-report/*.txt
           if-no-files-found: warn
 
   report:
@@ -327,15 +600,18 @@ jobs:
     needs: [build]
     runs-on: ubuntu-latest
     steps:
-      - name: Download Lottie log artifacts
+      - name: Download Compare Artifacts
         uses: actions/download-artifact@v8
         with:
-          path: all-logs
-          pattern: lottie-logs-*
-          merge-multiple: false
+          path: all-report
+          pattern: lottie-expressions-compare-*
+          merge-multiple: true
 
-      - name: Write Lottie summary
+      - name: Write Compare Summary
         shell: bash
+        env:
+          BRANCH_NAME: ${{ github.event.inputs.branch }}
+          TICK_COUNT: ${{ github.event.inputs.tick_count }}
         run: |
           python - <<'PY'
           import os
@@ -343,94 +619,114 @@ jobs:
           from pathlib import Path
 
           summary_path = Path(os.environ["GITHUB_STEP_SUMMARY"])
-          logs = sorted(Path("all-logs").glob("*/*.log"))
+          branch_name = os.environ["BRANCH_NAME"]
+          root = Path("all-report")
 
-          if not logs:
-              summary_path.write_text("## LottieExpressions Summary (tickCnt=${{ inputs.tick_count }})\n\nNo log artifacts were collected.\n", encoding="utf-8")
-              raise SystemExit(0)
-
-          platform_labels = {
-              "macos": "Mac",
+          platforms = {
               "ubuntu": "Ubuntu",
+              "macos": "Mac",
               "windows-msvc": "Windows MSVC",
               "windows-msys2": "Windows MSYS2",
           }
 
-          fps_by_key = {}
+          lines = [
+              f"## LottieExpressions (main vs {branch_name}) (tickCnt={os.environ['TICK_COUNT']})",
+              "",
+          ]
+
+          variant_defs = [
+              ("thorvg-main", "false", "0", "thorvg-main / threads=false / sw=0"),
+              ("thorvg-nors", "false", "0", "thorvg-nors / threads=false / sw=0"),
+              ("thorvg-nors", "true", "0", "thorvg-nors / threads=true / sw=0"),
+              ("thorvg-nors", "true", "4", "thorvg-nors / threads=true / sw=4"),
+          ]
+
+          commit_lines = []
+          for platform in platforms:
+              for subproject, threads, sw, _ in variant_defs:
+                  commits_path = root / f"{platform}_{subproject}_{threads}_sw_{sw}_feature_commits.txt"
+                  if commits_path.exists():
+                      commit_lines = [line for line in commits_path.read_text(encoding="utf-8", errors="replace").splitlines() if line.strip()]
+                      if commit_lines:
+                          break
+              if commit_lines:
+                  break
+
+          lines.append("### Added Commits")
+          lines.append("")
+          if commit_lines:
+              lines.append("```text")
+              lines.extend(commit_lines)
+              lines.append("```")
+          else:
+              lines.append("No additional commits.")
+          lines.append("")
+
           fps_pattern = re.compile(r"\[\s*\d+\]:\s*([0-9.]+)\s*/\s*([0-9.]+)\s+fps")
 
-          for log in logs:
-              name = log.name.removesuffix(".log")
-              parts = name.split("_")
-              if len(parts) != 5:
-                  continue
-              platform, subproject, thread_flag, engine, sw_value = parts
-              if engine != "sw":
-                  continue
+          for platform, label in platforms.items():
+              cores_path = root / f"{platform}_cores.txt"
+              cores = cores_path.read_text(encoding="utf-8", errors="replace").strip() if cores_path.exists() else "n/a"
 
-              lines = log.read_text(encoding="utf-8", errors="replace").splitlines()
-              avg_fps = None
-              for line in reversed(lines):
-                  match = fps_pattern.search(line)
-                  if match:
-                      avg_fps = float(match.group(2))
-                      break
-
-              if avg_fps is None:
-                  continue
-
-              fps_by_key[(platform, subproject, thread_flag, sw_value)] = avg_fps
-
-          def format_delta(base, target):
-              pct = ((target / base) - 1.0) * 100.0
-              sign = "+" if pct > 0 else ""
-              return f"{sign}{pct:.2f}% ({base:.2f} -> {target:.2f} fps)"
-
-          def comparison_line(label, base_key, target_key):
-              base = fps_by_key.get(base_key)
-              target = fps_by_key.get(target_key)
-              if base is None or target is None:
-                  return f"- {label} -> n/a"
-              if abs(target - base) < 0.005:
-                  return f"- {label} -> 0%"
-              return f"- {label} -> {format_delta(base, target)}"
-
-          platforms = [p for p in platform_labels if any(key[0] == p for key in fps_by_key)]
-          lines = ["## LottieExpressions Summary (tickCnt=${{ inputs.tick_count }})", ""]
-
-          for index, platform in enumerate(platforms):
-              lines.append(f"### {platform_labels[platform]}")
+              lines.append(f"### {label}")
               lines.append("")
-              lines.append("#### 1. thread option enabled")
+              lines.append(f"Available cores: **{cores}**")
               lines.append("")
-              lines.append(
-                  comparison_line(
-                      "feature + 0 threads",
-                      (platform, "thorvg-main", "false", "0"),
-                      (platform, "thorvg-nors", "true", "0"),
-                  )
-              )
-              lines.append(
-                  comparison_line(
-                      "feature + 4 threads",
-                      (platform, "thorvg-main", "false", "0"),
-                      (platform, "thorvg-nors", "true", "4"),
-                  )
-              )
+
+              lines.extend([
+                  "| Variant | FPS Delta | Base Elapsed | Target Elapsed |",
+                  "|---|---:|---:|---:|",
+              ])
+
+              for subproject, threads, sw, variant_label in variant_defs:
+                  status_path = root / f"{platform}_{subproject}_{threads}_sw_{sw}_merge_status.tsv"
+                  status = "no-data"
+                  if status_path.exists():
+                      status_map = {}
+                      for line in status_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                          if not line.strip():
+                              continue
+                          key, value = line.split("\t", 1)
+                          status_map[key] = value
+                      status = status_map.get("status", "unknown")
+
+                  fps_by_state = {}
+                  for state in ("base", "merged"):
+                      log_path = root / f"{platform}_{subproject}_{threads}_{state}_sw_{sw}.log"
+                      if not log_path.exists():
+                          continue
+                      avg_fps = None
+                      for line in reversed(log_path.read_text(encoding="utf-8", errors="replace").splitlines()):
+                          match = fps_pattern.search(line)
+                          if match:
+                              avg_fps = float(match.group(2))
+                              break
+                      if avg_fps is not None:
+                          fps_by_state[state] = avg_fps
+
+                  elapsed_by_state = {}
+                  elapsed_metrics_path = root / f"{platform}_{subproject}_{threads}_sw_{sw}_elapsed_metrics.tsv"
+                  if elapsed_metrics_path.exists():
+                      for line in elapsed_metrics_path.read_text(encoding="utf-8", errors="replace").splitlines():
+                          if not line.strip():
+                              continue
+                          state, elapsed = line.split("\t", 1)
+                          elapsed_by_state[state] = elapsed or "n/a"
+
+                  if status != "merged":
+                      lines.append(f"| {variant_label} | merge-conflict | {elapsed_by_state.get('base', 'n/a')} | {elapsed_by_state.get('merged', 'n/a')} |")
+                      continue
+
+                  base = fps_by_state.get("base")
+                  target = fps_by_state.get("merged")
+                  if base is None or target is None:
+                      lines.append(f"| {variant_label} | n/a | {elapsed_by_state.get('base', 'n/a')} | {elapsed_by_state.get('merged', 'n/a')} |")
+                      continue
+
+                  pct = ((target / base) - 1.0) * 100.0
+                  pct_sign = "+" if pct > 0 else ""
+                  lines.append(f"| {variant_label} | {pct_sign}{pct:.2f}% | {elapsed_by_state.get('base', 'n/a')} | {elapsed_by_state.get('merged', 'n/a')} |")
               lines.append("")
-              lines.append("#### 2. thread option disabled")
-              lines.append("")
-              lines.append(
-                  comparison_line(
-                      "feature + 0 threads",
-                      (platform, "thorvg-main", "false", "0"),
-                      (platform, "thorvg-nors", "false", "0"),
-                  )
-              )
-              if index != len(platforms) - 1:
-                  lines.append("")
-                  lines.append("---")
-                  lines.append("")
 
           summary_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
           PY

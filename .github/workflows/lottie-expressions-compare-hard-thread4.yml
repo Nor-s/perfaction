@@ -1,5 +1,5 @@
-name: LottieExpressions Compare Hard thread 0 vs thread 4
-run-name: Hard Compare2 (main vs ${{ inputs.branch }}) (tick=${{ inputs.tick_count }}, loops=${{ inputs.loop_count }})
+name: LottieExpressions Compare Hard thread 0 vs thread N
+run-name: Hard Compare2 (main vs ${{ inputs.branch }}) (tick=${{ inputs.tick_count }}, loops=${{ inputs.loop_count }}, threads=${{ inputs.thread_count }})
 
 on:
   workflow_dispatch:
@@ -17,6 +17,11 @@ on:
         description: Number of measured loops (1-10)
         required: true
         default: '3'
+        type: string
+      thread_count:
+        description: Thread count for the merged run (base always uses 0)
+        required: true
+        default: '4'
         type: string
 
 permissions:
@@ -226,10 +231,17 @@ jobs:
         run: |
           os_line="$(uname -srvmo)"
           compiler_line="$(c++ --version | head -n 1)"
+          if [ "${{ matrix.platform }}" = "macos" ]; then
+            cores="$(sysctl -n hw.ncpu)"
+          else
+            cores="$(nproc)"
+          fi
+          printf 'Available cores on %s: %s\n' "${{ matrix.platform }}" "$cores"
           {
             printf 'runner\t%s\n' "${{ matrix.runs_on }}"
             printf 'os\t%s\n' "$os_line"
             printf 'compiler\t%s\n' "$compiler_line"
+            printf 'cores\t%s\n' "$cores"
           } > "ci-report/${{ matrix.platform }}_metadata.tsv"
 
       - name: Collect Metadata (Windows MSVC)
@@ -238,10 +250,13 @@ jobs:
         run: |
           $compilerLine = ((cmd /c "cl 2>&1") | Select-Object -First 1).ToString().Trim()
           $osLine = [System.Environment]::OSVersion.VersionString
+          $cores = [Environment]::ProcessorCount
+          Write-Host "Available cores on windows-msvc: $cores"
           @(
             "runner`t${{ matrix.runs_on }}"
             "os`t$osLine"
             "compiler`t$compilerLine"
+            "cores`t$cores"
           ) | Set-Content "ci-report/${{ matrix.platform }}_metadata.tsv"
 
       - name: Collect Metadata (Windows MSYS2)
@@ -250,10 +265,13 @@ jobs:
         run: |
           os_line="$(uname -srvmo)"
           compiler_line="$(g++ --version | head -n 1)"
+          cores="$(nproc)"
+          printf 'Available cores on windows-msys2: %s\n' "$cores"
           {
             printf 'runner\t%s\n' "${{ matrix.runs_on }}"
             printf 'os\t%s\n' "$os_line"
             printf 'compiler\t%s\n' "$compiler_line"
+            printf 'cores\t%s\n' "$cores"
           } > "ci-report/${{ matrix.platform }}_metadata.tsv"
 
       - name: Compare LottieExpressions Hard (POSIX)
@@ -266,9 +284,14 @@ jobs:
           platform="${{ matrix.platform }}"
           tick_count="${{ github.event.inputs.tick_count }}"
           loop_count="${{ github.event.inputs.loop_count }}"
+          thread_count="${{ github.event.inputs.thread_count }}"
 
           if ! [[ "$loop_count" =~ ^[0-9]+$ ]] || [ "$loop_count" -lt 1 ] || [ "$loop_count" -gt 10 ]; then
             echo "loop_count must be an integer between 1 and 10" >&2
+            exit 1
+          fi
+          if ! [[ "$thread_count" =~ ^[0-9]+$ ]] || [ "$thread_count" -lt 1 ]; then
+            echo "thread_count must be a positive integer" >&2
             exit 1
           fi
 
@@ -347,11 +370,11 @@ jobs:
           build_state merged
 
           run_once base 0 warmup 1000 0
-          run_once merged 0 warmup 1000 4
+          run_once merged 0 warmup 1000 "$thread_count"
 
           for iteration in $(seq 1 "$loop_count"); do
             run_once base "$iteration" measure "$tick_count" 0
-            run_once merged "$iteration" measure "$tick_count" 4
+            run_once merged "$iteration" measure "$tick_count" "$thread_count"
           done
 
       - name: Compare LottieExpressions Hard (Windows MSVC)
@@ -364,9 +387,13 @@ jobs:
           $platform = "${{ matrix.platform }}"
           $tickCount = [int]"${{ github.event.inputs.tick_count }}"
           $loopCount = [int]"${{ github.event.inputs.loop_count }}"
+          $threadCount = [int]"${{ github.event.inputs.thread_count }}"
 
           if ($loopCount -lt 1 -or $loopCount -gt 10) {
             throw "loop_count must be between 1 and 10"
+          }
+          if ($threadCount -lt 1) {
+            throw "thread_count must be a positive integer"
           }
 
           function Build-State {
@@ -383,7 +410,8 @@ jobs:
               [string]$State,
               [int]$Iteration,
               [string]$RunType,
-              [int]$Ticks
+              [int]$Ticks,
+              [int]$ThreadArg
             )
 
             $buildDir = "build-$State"
@@ -391,7 +419,7 @@ jobs:
             $finalLog = "ci-report/${platform}_${State}_${RunType}_${Iteration}.log"
 
             $stopwatch = [System.Diagnostics.Stopwatch]::StartNew()
-            & ".\$buildDir\src\LottieExpressions.exe" sw 0 "$Ticks" *>&1 | Tee-Object -FilePath $rawLog
+            & ".\$buildDir\src\LottieExpressions.exe" sw "$ThreadArg" "$Ticks" *>&1 | Tee-Object -FilePath $rawLog
             $stopwatch.Stop()
             $status = $LASTEXITCODE
             Get-Content $rawLog -Tail 30 | Set-Content $finalLog
@@ -448,12 +476,12 @@ jobs:
           }
           Build-State -State merged
 
-          Run-Once -State base -Iteration 0 -RunType warmup -Ticks 1000
-          Run-Once -State merged -Iteration 0 -RunType warmup -Ticks 1000
+          Run-Once -State base -Iteration 0 -RunType warmup -Ticks 1000 -ThreadArg 0
+          Run-Once -State merged -Iteration 0 -RunType warmup -Ticks 1000 -ThreadArg $threadCount
 
           for ($iteration = 1; $iteration -le $loopCount; $iteration++) {
-            Run-Once -State base -Iteration $iteration -RunType measure -Ticks $tickCount
-            Run-Once -State merged -Iteration $iteration -RunType measure -Ticks $tickCount
+            Run-Once -State base -Iteration $iteration -RunType measure -Ticks $tickCount -ThreadArg 0
+            Run-Once -State merged -Iteration $iteration -RunType measure -Ticks $tickCount -ThreadArg $threadCount
           }
 
       - name: Compare LottieExpressions Hard (Windows MSYS2)
@@ -466,9 +494,14 @@ jobs:
           platform="${{ matrix.platform }}"
           tick_count="${{ github.event.inputs.tick_count }}"
           loop_count="${{ github.event.inputs.loop_count }}"
+          thread_count="${{ github.event.inputs.thread_count }}"
 
           if ! [[ "$loop_count" =~ ^[0-9]+$ ]] || [ "$loop_count" -lt 1 ] || [ "$loop_count" -gt 10 ]; then
             echo "loop_count must be an integer between 1 and 10" >&2
+            exit 1
+          fi
+          if ! [[ "$thread_count" =~ ^[0-9]+$ ]] || [ "$thread_count" -lt 1 ]; then
+            echo "thread_count must be a positive integer" >&2
             exit 1
           fi
 
@@ -493,12 +526,13 @@ jobs:
             iteration="$2"
             run_type="$3"
             ticks="$4"
+            thread_arg="$5"
             build_dir="build-${state}"
             raw_log="${repo_root}/ci-report/raw_${platform}_${state}_${run_type}_${iteration}.tmp"
             final_log="${repo_root}/ci-report/${platform}_${state}_${run_type}_${iteration}.log"
 
             start_ns="$(date +%s%N)"
-            "./${build_dir}/src/LottieExpressions.exe" sw 0 "$ticks" > "$raw_log" 2>&1
+            "./${build_dir}/src/LottieExpressions.exe" sw "$thread_arg" "$ticks" > "$raw_log" 2>&1
             status=$?
             end_ns="$(date +%s%N)"
             tail -n 30 "$raw_log" > "$final_log"
@@ -546,12 +580,12 @@ jobs:
           fi
           build_state merged
 
-          run_once base 0 warmup 1000
-          run_once merged 0 warmup 1000
+          run_once base 0 warmup 1000 0
+          run_once merged 0 warmup 1000 "$thread_count"
 
           for iteration in $(seq 1 "$loop_count"); do
-            run_once base "$iteration" measure "$tick_count"
-            run_once merged "$iteration" measure "$tick_count"
+            run_once base "$iteration" measure "$tick_count" 0
+            run_once merged "$iteration" measure "$tick_count" "$thread_count"
           done
 
       - name: Upload Compare Artifacts
@@ -585,6 +619,7 @@ jobs:
           BRANCH_NAME: ${{ github.event.inputs.branch }}
           TICK_COUNT: ${{ github.event.inputs.tick_count }}
           LOOP_COUNT: ${{ github.event.inputs.loop_count }}
+          THREAD_COUNT: ${{ github.event.inputs.thread_count }}
         run: |
           python - <<'PY'
           import os
@@ -595,6 +630,7 @@ jobs:
           branch_name = os.environ["BRANCH_NAME"]
           tick_count = os.environ["TICK_COUNT"]
           loop_count = os.environ["LOOP_COUNT"]
+          thread_count = os.environ["THREAD_COUNT"]
           root = Path("all-report")
 
           platforms = {
@@ -605,9 +641,9 @@ jobs:
           }
 
           lines = [
-              f"## LottieExpressions (main vs {branch_name}) (tickCnt={tick_count})",
+              f"## LottieExpressions (main vs {branch_name}) (tickCnt={tick_count}, threads={thread_count})",
               "",
-              f"- Average of `{loop_count}` measured runs after `1` warmup run (`1000` ticks)",
+              f"- Average of `{loop_count}` measured runs after `1` warmup run (`1000` ticks, main=`sw 0`, target=`sw {thread_count}`)",
               "",
           ]
 
@@ -656,6 +692,7 @@ jobs:
                   lines.append(f"- Runner: `{metadata.get('runner', 'n/a')}`")
                   lines.append(f"- OS: `{metadata.get('os', 'n/a')}`")
                   lines.append(f"- Compiler: `{metadata.get('compiler', 'n/a')}`")
+                  lines.append(f"- Available cores: `{metadata.get('cores', 'n/a')}`")
                   lines.append("")
 
               if status != "merged":
