@@ -43,22 +43,22 @@ jobs:
           - platform: ubuntu
             runs_on: ubuntu-latest
             variant:
-              name: thorvg-nors / threads=false / sw=0
-              subproject: thorvg-nors
-              threads: 'false'
-              sw: '0'
-          - platform: ubuntu
-            runs_on: ubuntu-latest
-            variant:
-              name: thorvg-nors / threads=true / sw=0
-              subproject: thorvg-nors
+              name: thorvg-main / threads=true / sw=0
+              subproject: thorvg-main
               threads: 'true'
               sw: '0'
           - platform: ubuntu
             runs_on: ubuntu-latest
             variant:
-              name: thorvg-nors / threads=true / sw=4
-              subproject: thorvg-nors
+              name: thorvg-main / threads=false / sw=4
+              subproject: thorvg-main
+              threads: 'false'
+              sw: '4'
+          - platform: ubuntu
+            runs_on: ubuntu-latest
+            variant:
+              name: thorvg-main / threads=true / sw=4
+              subproject: thorvg-main
               threads: 'true'
               sw: '4'
           - platform: macos
@@ -71,22 +71,22 @@ jobs:
           - platform: macos
             runs_on: macos-latest
             variant:
-              name: thorvg-nors / threads=false / sw=0
-              subproject: thorvg-nors
-              threads: 'false'
-              sw: '0'
-          - platform: macos
-            runs_on: macos-latest
-            variant:
-              name: thorvg-nors / threads=true / sw=0
-              subproject: thorvg-nors
+              name: thorvg-main / threads=true / sw=0
+              subproject: thorvg-main
               threads: 'true'
               sw: '0'
           - platform: macos
             runs_on: macos-latest
             variant:
-              name: thorvg-nors / threads=true / sw=4
-              subproject: thorvg-nors
+              name: thorvg-main / threads=false / sw=4
+              subproject: thorvg-main
+              threads: 'false'
+              sw: '4'
+          - platform: macos
+            runs_on: macos-latest
+            variant:
+              name: thorvg-main / threads=true / sw=4
+              subproject: thorvg-main
               threads: 'true'
               sw: '4'
           - platform: windows-msvc
@@ -99,22 +99,22 @@ jobs:
           - platform: windows-msvc
             runs_on: windows-latest
             variant:
-              name: thorvg-nors / threads=false / sw=0
-              subproject: thorvg-nors
-              threads: 'false'
-              sw: '0'
-          - platform: windows-msvc
-            runs_on: windows-latest
-            variant:
-              name: thorvg-nors / threads=true / sw=0
-              subproject: thorvg-nors
+              name: thorvg-main / threads=true / sw=0
+              subproject: thorvg-main
               threads: 'true'
               sw: '0'
           - platform: windows-msvc
             runs_on: windows-latest
             variant:
-              name: thorvg-nors / threads=true / sw=4
-              subproject: thorvg-nors
+              name: thorvg-main / threads=false / sw=4
+              subproject: thorvg-main
+              threads: 'false'
+              sw: '4'
+          - platform: windows-msvc
+            runs_on: windows-latest
+            variant:
+              name: thorvg-main / threads=true / sw=4
+              subproject: thorvg-main
               threads: 'true'
               sw: '4'
           - platform: windows-msys2
@@ -127,22 +127,22 @@ jobs:
           - platform: windows-msys2
             runs_on: windows-latest
             variant:
-              name: thorvg-nors / threads=false / sw=0
-              subproject: thorvg-nors
-              threads: 'false'
-              sw: '0'
-          - platform: windows-msys2
-            runs_on: windows-latest
-            variant:
-              name: thorvg-nors / threads=true / sw=0
-              subproject: thorvg-nors
+              name: thorvg-main / threads=true / sw=0
+              subproject: thorvg-main
               threads: 'true'
               sw: '0'
           - platform: windows-msys2
             runs_on: windows-latest
             variant:
-              name: thorvg-nors / threads=true / sw=4
-              subproject: thorvg-nors
+              name: thorvg-main / threads=false / sw=4
+              subproject: thorvg-main
+              threads: 'false'
+              sw: '4'
+          - platform: windows-msys2
+            runs_on: windows-latest
+            variant:
+              name: thorvg-main / threads=true / sw=4
+              subproject: thorvg-main
               threads: 'true'
               sw: '4'
 
@@ -636,9 +636,9 @@ jobs:
 
           variant_defs = [
               ("thorvg-main", "false", "0", "thorvg-main / threads=false / sw=0"),
-              ("thorvg-nors", "false", "0", "thorvg-nors / threads=false / sw=0"),
-              ("thorvg-nors", "true", "0", "thorvg-nors / threads=true / sw=0"),
-              ("thorvg-nors", "true", "4", "thorvg-nors / threads=true / sw=4"),
+              ("thorvg-main", "true", "0", "thorvg-main / threads=true / sw=0"),
+              ("thorvg-main", "false", "4", "thorvg-main / threads=false / sw=4"),
+              ("thorvg-main", "true", "4", "thorvg-main / threads=true / sw=4"),
           ]
 
           commit_lines = []
