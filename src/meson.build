@@ -44,7 +44,9 @@ source_file = [
     'GifSaver.cpp',
     'SceneEffects.cpp',
     'FillRule.cpp',
+    'Filling.cpp',
     'FillSpread.cpp',
+    'FillSpreadSamplerReuse.cpp',
     'GradientMasking.cpp',
     'GradientStroke.cpp',
     'GradientTransform.cpp',
@@ -78,7 +80,6 @@ source_file = [
     'TextEffects.cpp',
     'TextLayout.cpp',
     'TextLineWrap.cpp',
-    'TextMetrics.cpp',
     'Transform.cpp',
     'TrimPath.cpp',
     'Viewport.cpp',
@@ -88,6 +89,29 @@ thorvg_inc = thorvg_proj.get_variable('thorvg_inc')
 thorvg_lottie_inc = include_directories(join_paths('..', 'subprojects', thorvg_subproject, 'src', 'loaders', 'lottie'))
 thorvg_capi_inc = include_directories(join_paths('..', 'subprojects', thorvg_subproject, 'src', 'bindings', 'capi'))
 extra_inc = [thorvg_inc, thorvg_lottie_inc, thorvg_capi_inc]
+
+# Text metrics is still experimental and is not available in every comparison
+# subproject used by the regression setup.
+if cc.compiles('''
+    #include <thorvg.h>
+
+    void probe(tvg::Text* text)
+    {
+        tvg::TextMetrics textMetric;
+        tvg::GlyphMetrics glyphMetric;
+        (void) text->text();
+        (void) text->lines();
+        (void) text->metrics(textMetric);
+        (void) text->metrics("a", glyphMetric);
+    }
+''',
+    name: 'ThorVG text metrics API',
+    include_directories: thorvg_inc)
+    source_file += ['TextMetrics.cpp']
+    message('ThorVG text metrics API found. Enabled TextMetrics example.')
+else
+    message('ThorVG text metrics API not found. Skipping TextMetrics example.')
+endif
 
 # Lottie Examples
 if fs.is_file(join_paths(meson.current_source_dir(), '..', 'subprojects', thorvg_subproject, 'src', 'loaders', 'lottie', 'thorvg_lottie.h'))

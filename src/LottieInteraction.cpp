@@ -1,3 +1,6 @@
+//
+// Created by noh on 6/9/26.
+//
 /*
  * Copyright (c) 2025 - 2026 ThorVG project. All rights reserved.
 
@@ -20,7 +23,7 @@
  * SOFTWARE.
  */
 
-#include <thorvg_lottie.h>
+#include <thorvg-1/thorvg_lottie.h>
 #include <math.h>
 #include "Example.h"
 
@@ -32,13 +35,17 @@ struct UserExample : tvgexam::Example
 {
     unique_ptr<tvg::LottieAnimation> lottie;
 
-    tvg::Point down, prv;
+    struct {
+        uint32_t cursor = 0;
+        uint32_t rotation  = 0;
+    } slot;
+
+    tvg::Point down{}, prv{}, cur{};
     tvg::Point origin;
     float rotation = 0.0f;
     uint32_t time = 0;
     float scale = 1.0f;
     bool pressed = false;
-
 
     struct {
         uint32_t duration = 2000;  //5secs
@@ -46,7 +53,6 @@ struct UserExample : tvgexam::Example
         uint32_t time = 0.0f;
         bool on = false;
     } effect;
-
 
     float calculate(tvg::Point& prv, tvg::Point& cur)
     {
@@ -60,7 +66,6 @@ struct UserExample : tvgexam::Example
 
         return degree;
     }
-
 
     bool clickdown(tvg::Canvas* canvas, int32_t x, int32_t y) override
     {
@@ -91,19 +96,22 @@ struct UserExample : tvgexam::Example
         return false;
     }
 
+    void rotate(float val)
+    {
+        rotation = val;
+        char buf[1024];
+        snprintf(buf, sizeof(buf), R"({"spin_rotation":{"p":{"x":"var $bm_rt = %f;"}}})", rotation);
+        lottie->del(slot.rotation);
+        slot.rotation = lottie->gen(buf);
+        tvgexam::verify(lottie->apply(slot.rotation));
+    }
+
     bool motion(tvg::Canvas* canvas, int32_t x, int32_t y) override
     {
-        //update cursor
-        tvgexam::verify(lottie->assign("FingerCursor", 3, "ct_xcoord", float(x) / scale));
-        tvgexam::verify(lottie->assign("FingerCursor", 3, "ct_ycoord", float(y) / scale));
-
+        cur = {float(x) - origin.x, float(y) - origin.y};
         if (!pressed) return false;
 
-        tvg::Point cur = {float(x) - origin.x, float(y) - origin.y};
-
-        rotation = fmodf(rotation + calculate(prv, cur), 360.0f);   //current rotation
-
-        tvgexam::verify(lottie->assign("SpinBoard", 10, "ct_val", rotation));
+        rotate(fmodf(rotation + calculate(prv, cur), 360.0f));
 
         prv = cur;
 
@@ -144,6 +152,16 @@ struct UserExample : tvgexam::Example
 
     bool update(tvg::Canvas* canvas, uint32_t elapsed) override
     {
+        //update cursor
+        char buf[1024];
+        auto wiggle = std::sin(elapsed  * 0.01f) * 20.0f + 320.0f;
+        auto cx = (cur.x + origin.x) / scale + wiggle;
+        auto cy = (cur.y + origin.y) / scale;
+        snprintf(buf, sizeof(buf), R"({"finger_cursor":{"p":{"x":"var $bm_rt; $bm_rt = [%f, %f];"}}})", cx, cy);
+        lottie->del(slot.cursor);
+        slot.cursor = lottie->gen(buf);
+        tvgexam::verify(lottie->apply(slot.cursor));
+
         //spinning effect
         if (effect.on) {
             auto elapsedTime = elapsed - effect.time;
@@ -152,8 +170,7 @@ struct UserExample : tvgexam::Example
                 progress = 1.0f;
                 effect.on = false;
             }
-            rotation = fmodf(effect.target * sin(progress), 360.0f);
-            tvgexam::verify(lottie->assign("SpinBoard", 10, "ct_val", rotation));
+            rotate(fmodf(effect.target * sin(progress), 360.0f));
         }
 
         auto progress = tvgexam::progress(elapsed, lottie->duration());
@@ -165,7 +182,6 @@ struct UserExample : tvgexam::Example
         return true;
     }
 };
-
 
 /************************************************************************/
 /* Entry Point                                                          */

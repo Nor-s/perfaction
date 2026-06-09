@@ -26,8 +26,8 @@
  /* ThorVG Drawing Contents                                              */
  /************************************************************************/
 
-#define NUM_PER_ROW 6
-#define NUM_PER_COL 6
+#define NUM_PER_ROW 10
+#define NUM_PER_COL 10
 
 struct UserExample : tvgexam::Example
 {
@@ -73,6 +73,10 @@ struct UserExample : tvgexam::Example
 	{
 		counter = 0;
 		this->scandir(EXAMPLE_DIR"/lottie/expressions");
+		this->scandir(EXAMPLE_DIR"/lottie/expressions");
+		this->scandir(EXAMPLE_DIR"/lottie/expressions");
+		this->scandir(EXAMPLE_DIR"/lottie/expressions");
+		this->scandir(EXAMPLE_DIR"/lottie/expressions");
 
 		for (auto& animation : animations) {
 			_canvas->add(animation->picture());
@@ -96,23 +100,23 @@ struct UserExample : tvgexam::Example
 
 	bool update(tvg::Canvas* canvas, uint32_t elapsed) override
 	{
-		//toggle every 5 seconds
-		// if (elapsed - toggleTime >= 5000) {
+		// //toggle every 5 seconds
+		// if (elapsed - toggleTime >= 10000) {
 		//     toggleTime = elapsed;
 		//     if (loaded) unloadAnimations();
 		//     else loadAnimations();
 		// }
-
+		//
 		for (auto& animation : animations) {
 			auto progress = tvgexam::progress(elapsed, animation->duration());
 			animation->frame(animation->totalFrame() * progress);
 		}
 		////toggle every 5 seconds
-		//if (elapsed - toggleTime >= 1000) {
-		//	toggleTime = elapsed;
-		//	if (loaded) unloadAnimations();
-		//	else loadAnimations();
-		//}
+		// if (elapsed - toggleTime >= 10000) {
+		// 	toggleTime = elapsed;
+		// 	if (loaded) unloadAnimations();
+		// 	else loadAnimations();
+		// }
 		canvas->update();
 
 		return true;

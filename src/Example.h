@@ -232,7 +232,7 @@ namespace tvgexam
 				mfps += result;
 				if (tickCnt % 10 == 0) printf("[%5d]: %0.2f / %0.2f fps\n", tickCnt, result, mfps / (tickCnt - 59));
 				if (tickCnt > maxTickCount) {
-					exit(0);
+					// exit(0);
 				}
 			}
 		}
@@ -249,8 +249,10 @@ namespace tvgexam
 			auto ptime = SDL_GetTicks();
 			example->elapsed = 0;
 			uint32_t tickCnt = 0;
+			uint32_t fpsTickCnt = 0;
 
 			while (running) {
+				auto rendered = false;
 
 				//SDL Event handling
 				while (SDL_PollEvent(&event)) {
@@ -303,11 +305,15 @@ namespace tvgexam
 				}
 
 				if (tickCnt > 0) {
-					needDraw |= example->update(canvas, example->elapsed);
+					auto updateDraw = example->update(canvas, example->elapsed);
+					needDraw |= updateDraw;
 				}
 
 				if (needDraw) {
-					if (draw()) refresh();
+					if (draw()) {
+						refresh();
+						rendered = true;
+					}
 					needDraw = false;
 				}
 
@@ -316,7 +322,7 @@ namespace tvgexam
 				ptime = ctime;
 				++tickCnt;
 
-				if (print) fps(tickCnt, ctime);
+				if (print && rendered) fps(++fpsTickCnt, ctime);
 			}
 		}
 
@@ -338,7 +344,10 @@ namespace tvgexam
 			window = SDL_CreateWindow("ThorVG Example (Software)", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, width, height, SDL_WINDOW_HIDDEN | SDL_WINDOW_RESIZABLE);
 
 			//Create a Canvas. Use Smart Rendering by default.
-			canvas = tvg::SwCanvas::gen();
+			// canvas = tvg::SwCanvas::gen(tvg::EngineOption::Aliased);
+			canvas = tvg::SwCanvas::gen(tvg::EngineOption::Default  );
+			// canvas = tvg::SwCanvas::gen(tvg::EngineOption::SmartRender  );
+			// canvas = tvg::SwCanvas::gen((tvg::EngineOption)((int8_t)tvg::EngineOption::Default |(int8_t) tvg::EngineOption::Aliased ));
 			if (!canvas) {
 				cout << "SwCanvas is not supported. Did you enable the SwEngine?" << endl;
 				return;
@@ -358,12 +367,17 @@ namespace tvgexam
 			auto surface = SDL_GetWindowSurface(window);
 			if (!surface) return;
 
+			int ww, wh;
+			SDL_GetWindowSize(window, &ww, &wh);
+			printf("window=%dx%d surface=%dx%d pitch=%d\n", ww, wh, surface->w, surface->h, surface->pitch);
+
 			//Set the canvas target and draw on it.
 			verify(static_cast<tvg::SwCanvas*>(canvas)->target((uint32_t*)surface->pixels, surface->pitch / 4, surface->w, surface->h, tvg::ColorSpace::ARGB8888));
 		}
 
 		void refresh() override
 		{
+			auto surface = SDL_GetWindowSurface(window);
 			SDL_UpdateWindowSurface(window);
 		}
 	};

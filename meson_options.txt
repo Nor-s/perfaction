@@ -6,8 +6,8 @@ option('threads',
 # Option for selecting thorvg subproject
 option('thorvg_subproject',
   type: 'combo',
-  choices: ['thorvg','thorvg-nors', 'thorvg-main', 'thorvg-feature','thorvg-main-feature', 'thorvg-feature-remove'],
-  value: 'thorvg-main',
+  choices: ['thorvg', 'thorvg-main', 'thorvg-feature','thorvg-main-feature', 'thorvg-feature-remove'],
+  value: 'thorvg-feature',
   description: 'Select thorvg subproject (thorvg, thorvg-main, thorvg-main-feature, thorvg-feature-remove)')
 
 option('thorvg_linkage',

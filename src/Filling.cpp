@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2020 - 2026 ThorVG project. All rights reserved.
+ * Copyright (c) 2026 ThorVG project. All rights reserved.
 
  * Permission is hereby granted, free of charge, to any person obtaining a copy
  * of this software and associated documentation files (the "Software"), to deal
@@ -25,34 +25,34 @@
 /************************************************************************/
 /* ThorVG Drawing Contents                                              */
 /************************************************************************/
-#include <filesystem>
 
-static bool _addDst(tvg::Canvas* canvas, const char* path, float x, float y, float w, float h)
-{
-    auto picture = tvg::Picture::gen();
-    if (picture->load(path) != tvg::Result::Success) {
-        tvg::Paint::rel(picture);
-        return false;
-    }
-    picture->size(w, h);
-    picture->translate(x, y);
-    canvas->add(picture);
-    return true;
-}
 struct UserExample : tvgexam::Example
 {
     bool content(tvg::Canvas* canvas, uint32_t w, uint32_t h) override
     {
-        auto bg = tvg::Shape::gen();
-        bg->appendRect(0,0, w, h);
-        bg->fill(255, 255, 255);
-        canvas->add(bg);
+        auto background = tvg::Shape::gen();
+        if (!tvgexam::verify(background->appendRect(0, 0, 100, 100))) return false;
+        if (!tvgexam::verify(background->fill(0, 128, 255, 255))) return false;
+        if (!tvgexam::verify(canvas->add(background))) return false;
 
-        const auto path = EXAMPLE_DIR"/svg/dst.svg";
+        tvg::Fill::ColorStop cs[4] = {
+        {0.1f, 0, 0, 0, 0},
+        {0.2f, 50, 25, 50, 25},
+        {0.5f, 100, 100, 100, 125},
+        {0.9f, 255, 255, 255, 255}
+        };
 
-        if (!_addDst(canvas, path, 20.0f, 20.0f, 100.0f, 100.0f)) return false;
-        if (!_addDst(canvas, path, 140.0f, 20.0f, 200.0f, 200.0f)) return false;
-        if (!_addDst(canvas, path, 20.0f, 140.0f, 50.0f, 50.0f)) return false;
+        auto radial = tvg::RadialGradient::gen();
+        if (!tvgexam::verify(radial->colorStops(cs, 4))) return false;
+        if (!tvgexam::verify(radial->spread(tvg::FillSpread::Pad))) return false;
+        if (!tvgexam::verify(radial->radial(50.0f, 50.0f, 50.0f, 50.0f, 50.0f, 0.0f))) return false;
+
+        auto shape = tvg::Shape::gen();
+        if (!tvgexam::verify(shape->appendRect(20, 20, 60, 60))) return false;
+        if (!tvgexam::verify(shape->fill(radial))) return false;
+        if (!tvgexam::verify(shape->blend(tvg::BlendMethod::Hue))) return false;
+        if (!tvgexam::verify(canvas->add(shape))) return false;
+
         return true;
     }
 };
@@ -64,5 +64,5 @@ struct UserExample : tvgexam::Example
 
 int main(int argc, char **argv)
 {
-    return tvgexam::main(new UserExample, argc, argv);
+    return tvgexam::main(new UserExample, argc, argv, true, 100, 100);
 }
