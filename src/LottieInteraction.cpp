@@ -23,7 +23,7 @@
  * SOFTWARE.
  */
 
-#include <thorvg-1/thorvg_lottie.h>
+#include <thorvg_lottie.h>
 #include <math.h>
 #include "Example.h"
 
