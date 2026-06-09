@@ -30,6 +30,9 @@
 #include <thorvg.h>
 #include <SDL2/SDL.h>
 #include <SDL2/SDL_syswm.h>
+#ifdef Success
+#undef Success
+#endif
 #ifdef _WIN32
 #include <windows.h>
 #ifndef PATH_MAX

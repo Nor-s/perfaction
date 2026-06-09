@@ -1,4 +1,4 @@
-name: LottieExpressions Compare Hard thread 0 vs thread N
+name: LottieExpressions Compare Hard thread N vs thread N
 run-name: Hard Compare2 (main vs ${{ inputs.branch }}) (tick=${{ inputs.tick_count }}, loops=${{ inputs.loop_count }}, threads=${{ inputs.thread_count }})
 
 on:
@@ -19,7 +19,7 @@ on:
         default: '3'
         type: string
       thread_count:
-        description: Thread count for the merged run (base always uses 0)
+        description: Thread count for both base and merged runs
         required: true
         default: '4'
         type: string
@@ -369,11 +369,11 @@ jobs:
           fi
           build_state merged
 
-          run_once base 0 warmup 1000 0
+          run_once base 0 warmup 1000 "$thread_count"
           run_once merged 0 warmup 1000 "$thread_count"
 
           for iteration in $(seq 1 "$loop_count"); do
-            run_once base "$iteration" measure "$tick_count" 0
+            run_once base "$iteration" measure "$tick_count" "$thread_count"
             run_once merged "$iteration" measure "$tick_count" "$thread_count"
           done
 
@@ -476,11 +476,11 @@ jobs:
           }
           Build-State -State merged
 
-          Run-Once -State base -Iteration 0 -RunType warmup -Ticks 1000 -ThreadArg 0
+          Run-Once -State base -Iteration 0 -RunType warmup -Ticks 1000 -ThreadArg $threadCount
           Run-Once -State merged -Iteration 0 -RunType warmup -Ticks 1000 -ThreadArg $threadCount
 
           for ($iteration = 1; $iteration -le $loopCount; $iteration++) {
-            Run-Once -State base -Iteration $iteration -RunType measure -Ticks $tickCount -ThreadArg 0
+            Run-Once -State base -Iteration $iteration -RunType measure -Ticks $tickCount -ThreadArg $threadCount
             Run-Once -State merged -Iteration $iteration -RunType measure -Ticks $tickCount -ThreadArg $threadCount
           }
 
@@ -580,11 +580,11 @@ jobs:
           fi
           build_state merged
 
-          run_once base 0 warmup 1000 0
+          run_once base 0 warmup 1000 "$thread_count"
           run_once merged 0 warmup 1000 "$thread_count"
 
           for iteration in $(seq 1 "$loop_count"); do
-            run_once base "$iteration" measure "$tick_count" 0
+            run_once base "$iteration" measure "$tick_count" "$thread_count"
             run_once merged "$iteration" measure "$tick_count" "$thread_count"
           done
 
@@ -643,7 +643,7 @@ jobs:
           lines = [
               f"## LottieExpressions (main vs {branch_name}) (tickCnt={tick_count}, threads={thread_count})",
               "",
-              f"- Average of `{loop_count}` measured runs after `1` warmup run (`1000` ticks, main=`sw 0`, target=`sw {thread_count}`)",
+              f"- Average of `{loop_count}` measured runs after `1` warmup run (`1000` ticks, main=`sw {thread_count}`, target=`sw {thread_count}`)",
               "",
           ]
 

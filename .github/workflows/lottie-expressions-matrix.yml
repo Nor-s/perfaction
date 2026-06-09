@@ -210,6 +210,27 @@ jobs:
             mingw-w64-ucrt-x86_64-ninja
             mingw-w64-ucrt-x86_64-SDL2
 
+      - name: Init thorvg-main submodule (POSIX)
+        if: matrix.platform == 'ubuntu' || matrix.platform == 'macos'
+        shell: bash
+        run: |
+          git submodule sync -- subprojects/thorvg-main
+          git submodule update --init --recursive subprojects/thorvg-main
+
+      - name: Init thorvg-main submodule (Windows MSVC)
+        if: matrix.platform == 'windows-msvc'
+        shell: powershell
+        run: |
+          git submodule sync -- subprojects/thorvg-main
+          git submodule update --init --recursive subprojects/thorvg-main
+
+      - name: Init thorvg-main submodule (Windows MSYS2)
+        if: matrix.platform == 'windows-msys2'
+        shell: msys2 {0}
+        run: |
+          git submodule sync -- subprojects/thorvg-main
+          git submodule update --init --recursive subprojects/thorvg-main
+
       - name: Install Packages (Ubuntu)
         if: matrix.platform == 'ubuntu'
         shell: bash
@@ -404,7 +425,15 @@ jobs:
           if [ "$target_branch" = "main" ]; then
             feature_commit="$main_commit"
           else
-            git fetch origin "refs/heads/${target_branch}"
+            if [[ "$target_branch" == */* ]]; then
+              fork_owner="${target_branch%%/*}"
+              fork_branch="${target_branch#*/}"
+              git remote remove ci-target 2>/dev/null || true
+              git remote add ci-target "https://github.com/${fork_owner}/thorvg.git"
+              git fetch ci-target "refs/heads/${fork_branch}"
+            else
+              git fetch origin "refs/heads/${target_branch}"
+            fi
             feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
           fi
 
@@ -479,7 +508,16 @@ jobs:
           if ($targetBranch -eq "main") {
             $featureCommit = $mainCommit
           } else {
-            git fetch origin "refs/heads/$targetBranch"
+            if ($targetBranch.Contains("/")) {
+              $parts = $targetBranch.Split("/", 2)
+              $forkOwner = $parts[0]
+              $forkBranch = $parts[1]
+              git remote remove ci-target 2>$null
+              git remote add ci-target "https://github.com/$forkOwner/thorvg.git"
+              git fetch ci-target "refs/heads/$forkBranch"
+            } else {
+              git fetch origin "refs/heads/$targetBranch"
+            }
             $featureCommit = (git rev-parse "FETCH_HEAD^{commit}").Trim()
           }
           git config user.name "github-actions[bot]"
@@ -554,7 +592,15 @@ jobs:
           if [ "$target_branch" = "main" ]; then
             feature_commit="$main_commit"
           else
-            git fetch origin "refs/heads/${target_branch}"
+            if [[ "$target_branch" == */* ]]; then
+              fork_owner="${target_branch%%/*}"
+              fork_branch="${target_branch#*/}"
+              git remote remove ci-target 2>/dev/null || true
+              git remote add ci-target "https://github.com/${fork_owner}/thorvg.git"
+              git fetch ci-target "refs/heads/${fork_branch}"
+            else
+              git fetch origin "refs/heads/${target_branch}"
+            fi
             feature_commit="$(git rev-parse FETCH_HEAD^{commit})"
           fi
 

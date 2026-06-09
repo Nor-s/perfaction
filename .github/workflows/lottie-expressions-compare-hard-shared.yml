@@ -1,4 +1,4 @@
-name: LottieExpressions Compare Hard Shared
+name: LottieExpressions Compare Hard Shared(F)
 run-name: Hard Compare Shared (main vs ${{ inputs.branch }}) (tick=${{ inputs.tick_count }}, loops=${{ inputs.loop_count }})
 
 on:
