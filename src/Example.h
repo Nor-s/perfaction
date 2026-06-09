@@ -235,7 +235,7 @@ namespace tvgexam
 				mfps += result;
 				if (tickCnt % 10 == 0) printf("[%5d]: %0.2f / %0.2f fps\n", tickCnt, result, mfps / (tickCnt - 59));
 				if (tickCnt > maxTickCount) {
-					// exit(0);
+					exit(0);
 				}
 			}
 		}

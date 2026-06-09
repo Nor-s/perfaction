@@ -304,7 +304,7 @@ jobs:
 
             /usr/bin/time -p -o "$timing_file" "./${build_dir}/src/LottieExpressions" sw 0 "$ticks" > "$raw_log" 2>&1
             status=$?
-            tail -n 30 "$raw_log" > "$final_log"
+            cp "$raw_log" "$final_log"
             [ "$status" -eq 0 ] || return "$status"
 
             if [ "$run_type" = "measure" ]; then
@@ -425,7 +425,7 @@ jobs:
             $stopwatch.Stop()
             $status = $LASTEXITCODE
             $env:PATH = $originalPath
-            Get-Content $rawLog -Tail 30 | Set-Content $finalLog
+            Copy-Item -Force $rawLog $finalLog
             if ($status -ne 0) { exit $status }
 
             if ($RunType -eq "measure") {
@@ -556,7 +556,7 @@ jobs:
             PATH="${runtime_dir}:$PATH" "./${build_dir}/src/LottieExpressions.exe" sw 0 "$ticks" > "$raw_log" 2>&1
             status=$?
             end_ns="$(date +%s%N)"
-            tail -n 30 "$raw_log" > "$final_log"
+            cp "$raw_log" "$final_log"
             [ "$status" -eq 0 ] || return "$status"
 
             if [ "$run_type" = "measure" ]; then

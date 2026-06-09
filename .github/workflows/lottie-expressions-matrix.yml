@@ -406,7 +406,7 @@ jobs:
               printf '%s\t%s\n' "$state" "${elapsed:-n/a}" >> "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_elapsed_metrics.tsv"
             fi
 
-            tail -n 30 "$raw_log" > "$final_log"
+            cp "$raw_log" "$final_log"
             return $status
           }
 
@@ -491,7 +491,7 @@ jobs:
             $status = $LASTEXITCODE
             $elapsed = [string]::Format([System.Globalization.CultureInfo]::InvariantCulture, "{0:F3}s", $stopwatch.Elapsed.TotalSeconds)
             "$State`t$elapsed" | Add-Content "ci-report/${platform}_${subproject}_${threads}_sw_${sw}_elapsed_metrics.tsv"
-            Get-Content $rawLog -Tail 30 | Set-Content $finalLog
+            Copy-Item -Force $rawLog $finalLog
             if ($status -ne 0) { exit $status }
           }
 
@@ -573,7 +573,7 @@ jobs:
             end_ns="$(date +%s%N)"
             elapsed="$(awk -v start="$start_ns" -v end="$end_ns" 'BEGIN { printf "%.3fs", (end - start) / 1000000000 }')"
             printf '%s\t%s\n' "$state" "$elapsed" >> "${repo_root}/ci-report/${platform}_${subproject}_${threads}_sw_${sw}_elapsed_metrics.tsv"
-            tail -n 30 "$raw_log" > "$final_log"
+            cp "$raw_log" "$final_log"
             return $status
           }
 

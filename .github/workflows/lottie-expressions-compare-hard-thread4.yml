@@ -308,7 +308,7 @@ jobs:
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
               -Dthreads=true
-            meson compile -C "$build_dir"
+            meson compile -C "$build_dir" src/LottieExpressions
           }
 
           run_once() {
@@ -324,7 +324,7 @@ jobs:
 
             /usr/bin/time -p -o "$timing_file" "./${build_dir}/src/LottieExpressions" sw "$workers"  "$ticks" > "$raw_log" 2>&1
             status=$?
-            tail -n 30 "$raw_log" > "$final_log"
+            cp "$raw_log" "$final_log"
             [ "$status" -eq 0 ] || return "$status"
 
             if [ "$run_type" = "measure" ]; then
@@ -401,7 +401,7 @@ jobs:
             $buildDir = "build-$State"
             meson setup --wipe $buildDir "-Dbuildtype=release" "-Doptimization=s" "-Dthorvg_subproject=thorvg-main" "-Dthreads=true"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            meson compile -C $buildDir
+            meson compile -C $buildDir src/LottieExpressions
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           }
 
@@ -422,7 +422,7 @@ jobs:
             & ".\$buildDir\src\LottieExpressions.exe" sw "$ThreadArg" "$Ticks" *>&1 | Tee-Object -FilePath $rawLog
             $stopwatch.Stop()
             $status = $LASTEXITCODE
-            Get-Content $rawLog -Tail 30 | Set-Content $finalLog
+            Copy-Item -Force $rawLog $finalLog
             if ($status -ne 0) { exit $status }
 
             if ($RunType -eq "measure") {
@@ -518,7 +518,7 @@ jobs:
               -Doptimization=s \
               -Dthorvg_subproject=thorvg-main \
               -Dthreads=true
-            meson compile -C "$build_dir"
+            meson compile -C "$build_dir" src/LottieExpressions
           }
 
           run_once() {
@@ -535,7 +535,7 @@ jobs:
             "./${build_dir}/src/LottieExpressions.exe" sw "$thread_arg" "$ticks" > "$raw_log" 2>&1
             status=$?
             end_ns="$(date +%s%N)"
-            tail -n 30 "$raw_log" > "$final_log"
+            cp "$raw_log" "$final_log"
             [ "$status" -eq 0 ] || return "$status"
 
             if [ "$run_type" = "measure" ]; then
